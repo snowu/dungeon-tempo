@@ -1,19 +1,97 @@
 import {modes,chart,judge,nearest} from './rhythm.js';
+import {newRun,roomChart,hitEnemy,hurt,chooseRelic,enterRoom,hitWindow,relics} from './expedition.js';
 const $=id=>document.getElementById(id), canvas=$('game'), g=canvas.getContext('2d'), colors=['#d7f779','#c7abff','#7cdbd6','#ffb180'];
 const art=new Image();art.src='assets/tiny-dungeon.png';
 let audio,master,startTime=0,notes=[],state='ready',mode='normal',spb=60/108,score=0,combo=0,maxCombo=0,hits=0,perfect=0,feedbackUntil=0,muted=false,scheduled=[],bursts=[],flashes=[0,0,0,0],lastBeat=0;
+let run=null,lastPenalty=-Infinity;
 const keys=['d','f','j','k'],pads=[...document.querySelectorAll('[data-lane]')];
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
-function best(){try{return Number(localStorage.getItem('dungeon-tempo-best-'+mode))||0}catch{return 0}}
+function best(){try{return Number(localStorage.getItem('dungeon-tempo-run-best-'+mode))||0}catch{return 0}}
 function updateBest(){$('best').textContent=best()?best().toLocaleString():'—'}updateBest();
 function sprite(id,x,y,size=48){if(art.complete&&art.naturalWidth)g.drawImage(art,(id%12)*16,Math.floor(id/12)*16,16,16,Math.round(x),Math.round(y),size,size)}
 function tone(freq,time,duration,type='triangle',volume=.08){const osc=audio.createOscillator(),gain=audio.createGain();osc.type=type;osc.frequency.setValueAtTime(freq,time);gain.gain.setValueAtTime(0,time);gain.gain.linearRampToValueAtTime(volume,time+.008);gain.gain.exponentialRampToValueAtTime(.0001,time+duration);osc.connect(gain);gain.connect(master);osc.start(time);osc.stop(time+duration+.02);scheduled.push(osc);osc.onended=()=>{osc.disconnect();gain.disconnect();scheduled=scheduled.filter(o=>o!==osc)};}
 function drum(time,strong){const osc=audio.createOscillator(),gain=audio.createGain();osc.frequency.setValueAtTime(strong?140:600,time);osc.frequency.exponentialRampToValueAtTime(strong?40:120,time+.12);gain.gain.setValueAtTime(strong?.2:.035,time);gain.gain.exponentialRampToValueAtTime(.0001,time+.16);osc.connect(gain);gain.connect(master);osc.start(time);osc.stop(time+.18);scheduled.push(osc);osc.onended=()=>{osc.disconnect();gain.disconnect();scheduled=scheduled.filter(o=>o!==osc)};}
-function soundtrack(){const roots=[130.81,103.83,155.56,116.54];for(let b=0;b<66;b++){const t=startTime+b*spb,r=roots[Math.floor(b/16)%4];drum(t,b%2===0);tone(r/2,t,spb*.65,'triangle',.14);if(b%4===0){[1,1.1892,1.4983].forEach(m=>tone(r*m,t,spb*3.5,'sine',.035))}if(b>=4&&b<64){tone(r*[2,2.3784,2.9966,2.3784,2,1.4983,2.3784,1.7818][b%8],t,spb*.32,'triangle',.045);if(b%2===1)tone(r*4,t+spb/2,spb*.16,'sine',.025)}}}
-async function start(){document.activeElement?.blur();if(state==='paused'){await audio.resume();state='playing';$('overlay').classList.add('hidden');$('pause').textContent='Ⅱ Pause · Space';return}try{audio??=new (window.AudioContext||window.webkitAudioContext)();await audio.resume();master??=audio.createGain();master.disconnect();master.connect(audio.destination);master.gain.value=muted?0:Number($('volume').value)/100*.65;scheduled.forEach(o=>{try{o.stop()}catch{}});scheduled=[];mode=$('difficulty').value;spb=60/modes[mode].bpm;notes=chart(mode);score=combo=maxCombo=hits=perfect=0;bursts=[];flashes=[0,0,0,0];startTime=audio.currentTime+.25;state='playing';$('overlay').classList.add('hidden');$('pause').disabled=false;$('difficulty').disabled=true;$('pause').textContent='Ⅱ Pause · Space';$('status').textContent='Four beats in. Then follow the gems.';$('score').textContent='000000';$('combo').innerHTML='0<span>×</span>';updateBest();soundtrack()}catch(e){$('overlay-copy').textContent='Audio could not start. Try a browser with Web Audio support.';console.error(e)}}
-async function pause(){if(state!=='playing')return;state='paused';await audio.suspend();$('overlay-label').textContent='TAKE A BREATHER';$('overlay-title').textContent='Holding the beat.';$('overlay-copy').textContent='Your session is paused. Pick it up when you’re ready.';$('start').textContent='Resume session ↗';$('hint').textContent='Space to resume';$('overlay').classList.remove('hidden');$('pause').textContent='▶ Resume · Space'}
-function finish(){state='finished';$('pause').disabled=true;$('difficulty').disabled=false;const accuracy=Math.round(hits/notes.length*100),rank=accuracy>=95?'S':accuracy>=85?'A':accuracy>=65?'B':accuracy>=40?'C':'D';if(score>best()){try{localStorage.setItem('dungeon-tempo-best-'+mode,String(score))}catch{}}updateBest();$('overlay-label').textContent=`SESSION COMPLETE · RANK ${rank}`;$('overlay-title').textContent=accuracy>=85?'The crypt is alive!':'That’s a wrap.';$('overlay-copy').textContent=`${score.toLocaleString()} points · ${accuracy}% notes hit · ${maxCombo} best combo · ${perfect} perfect`;$('start').textContent='Play again ↗';$('hint').textContent='Try a different pace, or chase your personal best.';$('overlay').classList.remove('hidden');$('status').textContent='Session complete. The band thanks you.';$('progress').style.width='100%';$('time').textContent='0:00'}
-function tap(lane){if(state!=='playing')return;const beat=(audio.currentTime-startTime-Number($('offset').value)/1000)/spb,n=nearest(notes,lane,beat,spb,modes[mode].window);flashes[lane]=performance.now()+120;pads[lane].classList.add('active');setTimeout(()=>pads[lane].classList.remove('active'),120);if(!n){combo=0;feedback('Off beat','#ff9c9c');$('combo').innerHTML='0<span>×</span>';return}const rating=judge((n.beat-beat)*spb,modes[mode].window);n.state='hit';hits++;combo++;maxCombo=Math.max(combo,maxCombo);if(rating==='Perfect')perfect++;score+=({Perfect:100,Great:75,Good:50}[rating])*(1+Math.floor(Math.min(combo,40)/10));$('score').textContent=String(score).padStart(6,'0');$('combo').innerHTML=combo+'<span>×</span>';feedback(rating,colors[lane]);tone([523.25,622.25,783.99,932.33][lane],audio.currentTime,.16,'triangle',.12);bursts.push({lane,t:performance.now()});$('status').textContent=combo>=10?`${combo} in a row. The dungeon is dancing!`:'Nice. Stay with the groove.'}
+function soundtrack(){const roots=[130.81,103.83,155.56,116.54];for(let b=0;b<run.room.endBeat;b++){const t=startTime+b*spb,r=roots[(Math.floor(b/8)+(run.floor-1))%4];drum(t,b%2===0);tone(r/2,t,spb*.65,'triangle',.14);if(b%4===0){[1,1.1892,1.4983].forEach(m=>tone(r*m,t,spb*3.5,'sine',.035))}if(b>=4&&b<34){tone(r*[2,2.3784,2.9966,2.3784,2,1.4983,2.3784,1.7818][b%8],t,spb*.32,'triangle',.045);if(b%2===1)tone(r*4,t+spb/2,spb*.16,'sine',.025)}}}
+function stopMusic(){for(const o of scheduled){try{o.stop()}catch{}}scheduled=[];}
+function syncRun(){
+ if(!run)return;
+ $('health').textContent=`♥ ${run.hp} / ${run.maxHp}`+(run.room.shield?` · ◇ ${run.room.shield}`:'');
+ $('health').classList.toggle('run-danger',run.hp<=3);
+ $('enemy-name').textContent=run.room.name+(run.room.elite?' · ELITE':'');
+ $('enemy-hp').style.width=run.room.hp/run.room.maxHp*100+'%';
+ $('enemy-numbers').textContent=`${run.room.hp} / ${run.room.maxHp} HP`;
+ $('enemy-sprite').style.backgroundPosition=`-${run.room.sprite%12*48}px -${Math.floor(run.room.sprite/12)*48}px`;
+ $('room-title').textContent=run.floor===5?'The final downbeat':`Room ${run.floor} / 5`;
+ $('map').innerHTML=Array.from({length:5},(_,i)=>`<span class="${i<run.cleared?'cleared':i===run.floor-1?'current':''}">${i===4?'♛':i+1}</span>`).join('');
+ $('relics').innerHTML=run.relics.length?run.relics.map(id=>{const r=relics.find(r=>r.id===id);return `<span class="relic-chip" title="${r.description}">${r.icon} ${r.name}</span>`}).join(''):'Nothing yet. Earn your first victory.';
+ $('seed').textContent=`Run ${run.seed.toString(16).toUpperCase()} · ${run.path.map(p=>p==='elite'?'Elite':p==='boss'?'Boss':'Crypt').join(' → ')}`;
+}
+function showOverlay(label,title,copy,buttonText){
+ $('overlay-label').textContent=label;$('overlay-title').textContent=title;$('overlay-copy').textContent=copy;
+ $('choices').replaceChildren();$('start').hidden=!buttonText;if(buttonText)$('start').textContent=buttonText;
+ $('overlay').classList.remove('hidden');$('overlay').classList.toggle('choosing',!buttonText);$('feedback').textContent='';
+}
+function choiceButton(icon,title,description,action){
+ const button=document.createElement('button');button.className='choice';
+ const i=document.createElement('i'),strong=document.createElement('strong'),span=document.createElement('span');
+ i.textContent=icon;strong.textContent=title;span.textContent=description;button.append(i,strong,span);button.onclick=action;$('choices').append(button);
+}
+function prepareRoom(){
+ stopMusic();spb=60/run.room.bpm;notes=roomChart(run);combo=0;bursts=[];flashes=[0,0,0,0];lastPenalty=-Infinity;
+ startTime=audio.currentTime+.25;state='playing';$('overlay').classList.add('hidden');$('overlay').classList.remove('choosing');$('choices').replaceChildren();
+ $('pause').disabled=false;$('difficulty').disabled=true;$('pause').textContent='Ⅱ Pause · Space';
+ $('status').textContent='Four beats in. Hit to attack; misses cost health.';$('combo').innerHTML='0<span>×</span>';
+ $('tempo').textContent=run.room.bpm+' BPM · 4/4';$('progress').style.width='0%';syncRun();soundtrack();
+}
+async function start(){
+ document.activeElement?.blur();
+ if(state==='paused'){await audio.resume();state='playing';$('overlay').classList.add('hidden');$('pause').textContent='Ⅱ Pause · Space';return}
+ if(!['ready','dead','won'].includes(state))return;
+ $('start').disabled=true;
+ try{audio??=new (window.AudioContext||window.webkitAudioContext)();await audio.resume();master??=audio.createGain();master.disconnect();master.connect(audio.destination);master.gain.value=muted?0:Number($('volume').value)/100*.65;
+ mode=$('difficulty').value;const seed=crypto.getRandomValues(new Uint32Array(1))[0];run=newRun(seed,mode);score=combo=maxCombo=hits=perfect=0;
+ $('score').textContent='000000';updateBest();prepareRoom();
+ }catch(e){$('overlay-copy').textContent='Audio could not start. Try a browser with Web Audio support.';console.error(e)}finally{$('start').disabled=false}
+}
+async function pause(){if(state!=='playing')return;state='paused';await audio.suspend();showOverlay('TAKE A BREATHER','Holding the beat.','Your run is paused. Your party is safe.','Resume run ↗');$('hint').textContent='Space to resume';$('pause').textContent='▶ Resume · Space'}
+function showRoutes(){
+ state='route';syncRun();
+ if(run.floor===4){showOverlay('THE LAST DOOR','The conductor awaits.','Your build is ready. One final battle remains.',null);choiceButton('♛','Enter the sanctum','Defeat the Hollow Conductor to break the curse.',()=>advance('crypt'));}
+ else{showOverlay('CHOOSE YOUR NEXT ROOM','Which way down?','The choice changes the enemy, tempo and pattern.',null);
+ choiceButton('◇','Quiet crypt','Standard enemy. Slower tempo. No extra healing.',()=>advance('crypt'));
+ choiceButton('⚔','Elite chamber','+18 enemy HP, +8 BPM, extra notes. Victory heals 2 HP.',()=>advance('elite'));}
+ $('hint').textContent='Your health and relics carry into the next room.';
+}
+function advance(route){if(enterRoom(run,route)){document.activeElement?.blur();prepareRoom()}}
+function conclude(){
+ stopMusic();$('pause').disabled=true;syncRun();
+ if(run.status==='loot'){
+ state='loot';showOverlay('ENEMY DEFEATED','Take one relic.','Shape your build. The other relics stay in the crypt.',null);
+ for(const id of run.choices){const r=relics.find(r=>r.id===id);choiceButton(r.icon,r.name,r.description,()=>{if(chooseRelic(run,id))showRoutes()})}
+ $('hint').textContent=`${run.hp} / ${run.maxHp} health · ${run.cleared} of 5 rooms cleared`;return;
+ }
+ state=run.status;$('difficulty').disabled=false;
+ if(score>best()){try{localStorage.setItem('dungeon-tempo-run-best-'+mode,String(score))}catch{}}updateBest();
+ const won=state==='won';showOverlay(won?'THE CURSE IS BROKEN':'YOUR RUN HAS ENDED',won?'The dungeon sings.':'The beat goes on.',`${run.cleared} / 5 rooms cleared · ${score.toLocaleString()} points · ${maxCombo} best combo`, 'Start a new run ↗');
+ $('hint').textContent=won?'Five rooms. One band. A fresh dungeon awaits.':'Health and relics reset. Each new run brings different encounters.';
+ $('status').textContent=won?'Victory! You defeated the Hollow Conductor.':'Fallen in the crypt. Start fresh and try a new build.';
+}
+function finish(){if(run.status!=='combat')return;run.hp=0;run.status='dead';conclude();$('overlay-copy').textContent=`The music ended with ${run.room.hp} enemy HP remaining. ${run.cleared} rooms cleared · ${score.toLocaleString()} points.`;}
+function takeDamage(){const lost=hurt(run);syncRun();feedback(lost?'−1 health':'Ward blocked it',lost?'#ff9c9c':'#d7f779');if(run.status==='dead')conclude();}
+function tap(lane){
+ if(state!=='playing')return;
+ const beat=(audio.currentTime-startTime-Number($('offset').value)/1000)/spb;
+ if(beat<3.5||beat>34.5)return;
+ const n=nearest(notes,lane,beat,spb,hitWindow(run,modes[mode].window));
+ flashes[lane]=performance.now()+120;pads[lane].classList.add('active');setTimeout(()=>pads[lane].classList.remove('active'),120);
+ if(!n){combo=0;$('combo').innerHTML='0<span>×</span>';if(audio.currentTime-lastPenalty>.25){lastPenalty=audio.currentTime;takeDamage()}return}
+ const rating=judge((n.beat-beat)*spb,hitWindow(run,modes[mode].window));n.state='hit';hits++;combo++;maxCombo=Math.max(combo,maxCombo);if(rating==='Perfect')perfect++;
+ score+=({Perfect:100,Great:75,Good:50}[rating])*(1+Math.floor(Math.min(combo,40)/10));
+ $('score').textContent=String(score).padStart(6,'0');$('combo').innerHTML=combo+'<span>×</span>';
+ const damage=hitEnemy(run,rating);feedback(`${rating} · ${damage} damage`,colors[lane]);syncRun();
+ tone([523.25,622.25,783.99,932.33][lane],audio.currentTime,.16,'triangle',.12);bursts.push({lane,t:performance.now()});
+ $('status').textContent=`${run.room.name}: ${run.room.hp} HP remaining.`;if(run.status!=='combat')conclude();
+}
 function feedback(text,color){$('feedback').textContent=text;$('feedback').style.color=color;feedbackUntil=performance.now()+450}
 function draw(now){const beat=state==='playing'||state==='paused'?(audio.currentTime-startTime)/spb:lastBeat;lastBeat=beat;g.clearRect(0,0,800,560);g.imageSmoothingEnabled=false;
 // The band's little stone stage, built from Kenney's 16px tiles.
@@ -23,6 +101,6 @@ for(let lane=0;lane<4;lane++){const x=112+lane*144;g.fillStyle=lane%2?'#1c2330':
 g.fillStyle='#8796a4';g.font='10px monospace';g.textAlign='center';g.fillText('H I T   T H E   L I N E',400,535);
 const renderNotes=state==='ready'?chart('normal').slice(0,8):notes;for(const n of renderNotes){if(n.state!=='pending')continue;const distance=n.beat-(state==='ready'?1:beat),y=468-distance*105;if(y<95||y>520)continue;const x=184+n.lane*144;g.fillStyle=colors[n.lane];g.globalAlpha=.14;g.fillRect(x-35,y-17,70,34);g.globalAlpha=1;g.save();g.translate(x,y);g.rotate(Math.PI/4);g.fillRect(-12,-12,24,24);g.fillStyle='#ffffff77';g.fillRect(-7,-7,7,7);g.restore()}
 bursts=bursts.filter(p=>now-p.t<400);if(!reduced)for(const p of bursts){const k=(now-p.t)/400;g.globalAlpha=1-k;g.strokeStyle=colors[p.lane];g.beginPath();g.arc(184+p.lane*144,468,20+k*45,0,Math.PI*2);g.stroke();g.globalAlpha=1}
-if(state==='playing'){const adjusted=(audio.currentTime-startTime-Number($('offset').value)/1000)/spb;for(const n of notes){if(n.state==='pending'&&(adjusted-n.beat)*spb>modes[mode].window){n.state='miss';combo=0;$('combo').innerHTML='0<span>×</span>';feedback('Miss','#c68b92')}}$('progress').style.width=Math.max(0,Math.min(100,beat/66*100))+'%';const remaining=Math.max(0,Math.ceil((66-beat)*spb));$('time').textContent=`${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')}`;if(beat>=0&&beat<4){$('feedback').textContent=String(4-Math.floor(beat));feedbackUntil=now+50}if(beat>=66)finish()}
+if(state==='playing'){const adjusted=(audio.currentTime-startTime-Number($('offset').value)/1000)/spb;for(const n of notes){if(n.state==='pending'&&(adjusted-n.beat)*spb>hitWindow(run,modes[mode].window)){n.state='miss';combo=0;$('combo').innerHTML='0<span>×</span>';takeDamage();if(state!=='playing')break}}$('progress').style.width=Math.max(0,Math.min(100,beat/run.room.endBeat*100))+'%';const remaining=Math.max(0,Math.ceil((run.room.endBeat-beat)*spb));$('time').textContent=`${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')}`;if(beat>=0&&beat<4){$('feedback').textContent=String(4-Math.floor(beat));feedbackUntil=now+50}if(state==='playing'&&beat>=run.room.endBeat)finish()}
 if(now>feedbackUntil||state!=='playing')$('feedback').textContent='';requestAnimationFrame(draw)}
-$('start').onclick=start;$('pause').onclick=()=>state==='paused'?start():pause();pads.forEach((p,i)=>p.addEventListener('pointerdown',e=>{e.preventDefault();tap(i)}));document.addEventListener('keydown',e=>{if(e.target.matches('input,select'))return;if(e.repeat)return;const lane=keys.indexOf(e.key.toLowerCase());if(lane>=0){e.preventDefault();tap(lane)}if(e.code==='Space'){e.preventDefault();if(state==='playing')pause();else if(state==='paused')start()}});document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='playing')pause()});$('difficulty').onchange=()=>{mode=$('difficulty').value;spb=60/modes[mode].bpm;$('tempo').textContent=modes[mode].bpm+' BPM · 4/4';$('time').textContent='0:'+String(Math.ceil(66*spb)).padStart(2,'0');updateBest()};function volume(){if(master)master.gain.value=muted?0:Number($('volume').value)/100*.65;$('sound').textContent=muted?'Sound off ♫':'Sound on ♫';$('sound').setAttribute('aria-label',muted?'Unmute audio':'Mute audio')}$('volume').oninput=volume;$('sound').onclick=()=>{muted=!muted;volume()};$('offset').oninput=()=>{$('offset-value').textContent=$('offset').value+' ms'};requestAnimationFrame(draw);
+$('start').onclick=start;$('pause').onclick=()=>state==='paused'?start():pause();pads.forEach((p,i)=>p.addEventListener('pointerdown',e=>{e.preventDefault();tap(i)}));document.addEventListener('keydown',e=>{if(e.target.matches?.('input,select'))return;if(e.repeat)return;const lane=keys.indexOf(e.key.toLowerCase());if(lane>=0){e.preventDefault();tap(lane)}if(e.code==='Space'&&['playing','paused'].includes(state)){e.preventDefault();if(state==='playing')pause();else start()}});document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='playing')pause()});$('difficulty').onchange=()=>{mode=$('difficulty').value;spb=60/modes[mode].bpm;$('tempo').textContent=modes[mode].bpm+' BPM · 4/4';$('time').textContent='0:'+String(Math.ceil(36*spb)).padStart(2,'0');updateBest()};function volume(){if(master)master.gain.value=muted?0:Number($('volume').value)/100*.65;$('sound').textContent=muted?'Sound off ♫':'Sound on ♫';$('sound').setAttribute('aria-label',muted?'Unmute audio':'Mute audio')}$('volume').oninput=volume;$('sound').onclick=()=>{muted=!muted;volume()};$('offset').oninput=()=>{$('offset-value').textContent=$('offset').value+' ms'};requestAnimationFrame(draw);
