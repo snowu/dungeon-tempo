@@ -107,6 +107,13 @@ export class Music {
    if(s.style==='funk')this.osc(s,t,.1,f*2,'sine',.022*v,e.pan);
   }
  }
+ metronome({startTime,bpm,count=16}){
+  this.stop();const spb=60/bpm,bus=this.context.createGain();bus.gain.value=.8;bus.connect(this.output);
+  const session={style:'click',startTime,spb,bus,nodes:[bus],sources:[],stopped:false};this.session=session;
+  // Sharp attack so the heard onset is unambiguous; first click of each bar is accented.
+  for(let i=0;i<count;i++){const t=startTime+i*spb,accent=i%4===0;this.osc(session,t,.06,accent?1760:1320,'square',accent?.11:.08,0,0,.001);this.noiseHit(session,t,.012,.1,4000)}
+  return Array.from({length:count},(_,i)=>startTime+i*spb);
+ }
  cue(lane){
   const s=this.session;if(!s||s.stopped)return;
   const beat=Math.max(0,(this.context.currentTime-s.startTime)/s.spb-4),chord=chords[Math.floor(beat/8)%4];

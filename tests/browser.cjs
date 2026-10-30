@@ -5,7 +5,7 @@ const assert=require('node:assert/strict');
  try{
  const page=await browser.newPage({viewport:{width:1360,height:1100}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(()=>{const Native=window.AudioContext;window.AudioContext=class extends Native{constructor(){super();window.testAudio=this;window.noteStarts=[];const create=this.createOscillator.bind(this);this.createOscillator=()=>{const o=create(),start=o.start.bind(o);o.start=t=>{window.noteStarts.push(t);start(t)};return o}}}});
- await page.goto('http://localhost:8087');await page.screenshot({path:'/tmp/rogue-ready.png',fullPage:true});await page.click('#start');
+ await page.addInitScript(()=>localStorage.setItem('tempo-learned','yes'));await page.goto('http://localhost:8087');await page.selectOption('#difficulty','normal');await page.selectOption('#key-layout','dfjk');await page.screenshot({path:'/tmp/rogue-ready.png',fullPage:true});await page.click('#start');
  await page.waitForTimeout(500);await page.keyboard.press('Space');assert.match(await page.locator('#overlay-title').textContent(),/Holding/);const time=await page.locator('#time').textContent();await page.waitForTimeout(250);assert.equal(await page.locator('#time').textContent(),time);await page.keyboard.press('Space');
  const seed=parseInt((await page.locator('#seed').textContent()).match(/Run ([A-F0-9]+)/)[1],16);
  let route='crypt';

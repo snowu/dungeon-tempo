@@ -13,18 +13,18 @@ export function makeRoom(run,route='crypt') {
  const rng=random(run.seed+run.floor*7919+(route==='elite'?443:0));
  const boss=run.floor===5,elite=!boss&&route==='elite';
  const foe=boss?{name:'The Hollow Conductor',sprite:124}:foes[Math.floor(rng()*foes.length)];
- const hp=(boss?118:46+run.floor*9)+(elite?18:0);
- const base={easy:88,normal:108,hard:132}[run.mode];
+ const hp=(run.mode==='easy'?[18,24,34,42,56][run.floor-1]:(boss?118:46+run.floor*9))+(elite?18:0);
+ const base={easy:72,normal:108,hard:132}[run.mode];
  return {...foe,boss,elite,route,hp,maxHp:hp,bpm:base+(run.floor-1)*3+(elite?8:0),endBeat:36,shield:run.relics.includes('ward')?3:0};
 }
 export function newRun(seed,mode='normal') {
- const run={seed:seed>>>0,mode,floor:1,hp:12,maxHp:12,relics:[],status:'combat',cleared:0,choices:[],path:['crypt']};run.room=makeRoom(run);return run;
+ const run={seed:seed>>>0,mode,floor:1,hp:mode==='easy'?16:12,maxHp:mode==='easy'?16:12,relics:[],status:'combat',cleared:0,choices:[],path:['crypt']};run.room=makeRoom(run);return run;
 }
 export function roomChart(run) {
  const rng=random(run.seed^Math.imul(run.floor,1013)^(run.room.elite?993:0));
  const motif=Array.from({length:8},()=>Math.floor(rng()*4));const notes=[];
- for(let beat=4;beat<34;beat++) { const lane=motif[beat%8]; notes.push({beat,lane,state:'pending'});
- if((run.mode==='hard'||run.room.elite||run.room.boss)&&beat%4===2)notes.push({beat:beat+.5,lane:(lane+1+Math.floor(rng()*3))%4,state:'pending'});
+ for(let beat=4;beat<34;beat+=(run.mode==='easy'&&run.floor<=2?2:1)) { const lane=motif[beat%8]; notes.push({beat,lane,state:'pending'});
+ if(run.mode!=='easy'&&(run.mode==='hard'||run.room.elite||run.room.boss)&&beat%4===2)notes.push({beat:beat+.5,lane:(lane+1+Math.floor(rng()*3))%4,state:'pending'});
  }return notes;
 }
 export function hitEnemy(run,rating) {
