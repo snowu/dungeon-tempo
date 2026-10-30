@@ -1,0 +1,8 @@
+# Dungeon Tempo
+A browser rhythm game: four dungeon adventurers form a chiptune band. Match falling gems to the line using D/F/J/K or touch. Complete a 64-beat arrangement, build a combo and chase a personal best across three tempos. Audio uses the Web Audio clock; pause suspends that clock and hiding the tab auto-pauses. Timing offset accommodates audio latency. No server or account is needed for gameplay.
+
+Run `npm run dev`, then open http://localhost:8087. Run timing tests with `npm test`. Deployable files are in `dist/`.
+
+Art: **Kenney — Tiny Dungeon**, CC0, https://kenney.nl/assets/tiny-dungeon. Original license is included at `dist/assets/Kenney-License.txt`. The packed sprite sheet was obtained unchanged from the public mirror https://github.com/chaewonkong/tiny_dungeon/tree/main/assets/kenney_tiny-dungeon after the original download failed. Sprites were inspected before selecting the characters and wall tiles. Music is an original synthesized arrangement generated in game.js, with no external recording. Fonts are optional Google Fonts with system fallbacks.
+
+Verification: timing and game-engine tests run with `npm test`. The browser smoke test is `node tests/browser.cjs` with a running local server and Playwright installed (or `PLAYWRIGHT_PATH` pointing to it; optional `CHROME_PATH`). Verified in Chromium: desktop and mobile rendering, keyboard hit scoring, pause/resume with a frozen clock, full-song completion and replay. Web Audio output measured a nonzero signal while playing and zero when muted. Six timing and runtime tests pass. Audio was checked programmatically, not by a human listening session.
