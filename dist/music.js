@@ -125,6 +125,14 @@ export class Music {
   for(let i=0;i<count;i++){const t=startTime+i*spb,accent=i%4===0;this.osc(session,t,.06,accent?1760:1320,'square',accent?.11:.08,0,0,.001);this.noiseHit(session,t,.012,.1,4000)}
   return Array.from({length:count},(_,i)=>startTime+i*spb);
  }
+ // The enemy's call: a growl per telegraphed beat, pitched by lane so the rhythm and lanes can be heard.
+ calls(list){
+  const s=this.session;if(!s||s.stopped)return;
+  for(const n of list){const t=s.startTime+n.beat*s.spb,f=hz([40,43,47,50][n.lane]);
+   const o=this.osc(s,t,.22,f,'sawtooth',.2,(n.lane-1.5)*.3,1400);o.frequency.exponentialRampToValueAtTime(f*.7,t+.2);this.noiseHit(s,t,.06,.12,900)}
+ }
+ block(lane){const s=this.session;if(!s||s.stopped)return;const t=this.context.currentTime;this.osc(s,t,.12,[1568,1760,1976,2093][lane],'square',.05,(lane-1.5)*.3,5000,.001);this.noiseHit(s,t,.05,.1,6000)}
+ strike(){const s=this.session;if(!s||s.stopped)return;const t=this.context.currentTime;const o=this.osc(s,t,.3,110,'sawtooth',.28,0,700);o.frequency.exponentialRampToValueAtTime(45,t+.25);this.noiseHit(s,t,.2,.25,300)}
  setLane(lane,on){
   const s=this.session;if(!s||s.stopped||!s.lanes)return;const g=s.lanes[lane].gain,t=this.context.currentTime;
   g.cancelScheduledValues(t);g.setValueAtTime(g.value,t);g.linearRampToValueAtTime(s.levels[lane]*(on?1:.06),t+(on?.03:.12));

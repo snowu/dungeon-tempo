@@ -170,3 +170,15 @@ input[type=range]{width:100%;accent-color:var(--lime);margin:0}
  #feedback{font-size:16px}
 }
 @media (prefers-reduced-motion:reduce){#health.run-danger{animation:none}}
+#enemy-trait{display:block;margin-top:6px;color:#ffcf8a;font-size:11px;line-height:1.35}
+#enemy-trait:empty{display:none}
+.enemy-card{transition:box-shadow .2s,border-color .2s}
+.enemy-card.winding{border-color:#ff8b83;box-shadow:0 0 0 1px #ff8b8355,0 0 24px #ff5a5233}
+.enemy-card.winding #enemy-sprite{animation:windup .55s ease-in-out infinite alternate}
+@keyframes windup{to{filter:drop-shadow(0 0 6px #ff5a52)}}
+.enemy-card.hurt #enemy-sprite{filter:brightness(2.4)}
+.enemy-card.lunge{animation:lunge .32s ease-out}
+@keyframes lunge{30%{transform:translateX(-14px) scale(1.04)}}
+.playfield.shake{animation:shake .32s}
+@keyframes shake{20%{transform:translate(-6px,2px)}40%{transform:translate(5px,-3px)}60%{transform:translate(-4px,1px)}80%{transform:translate(3px,0)}}
+@media (prefers-reduced-motion:reduce){.enemy-card.winding #enemy-sprite{animation:none}}

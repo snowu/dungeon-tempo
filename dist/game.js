@@ -1,11 +1,11 @@
 import {modes,chart,judge,nearest} from './rhythm.js';
 import {layouts,practiceChart,explainTap,calibrate} from './controls.js';
 import {Music,tracks,parts} from './music.js';
-import {newRun,roomChart,hitEnemy,hurt,chooseRelic,enterRoom,hitWindow,relics} from './expedition.js';
+import {newRun,roomChart,hitEnemy,hurt,chooseRelic,enterRoom,hitWindow,relics,fleeRoom,enemyFeeds,armored} from './expedition.js';
 const $=id=>document.getElementById(id), canvas=$('game'), g=canvas.getContext('2d'), colors=['#d7f779','#c7abff','#7cdbd6','#ffb180'];
 const art=new Image();art.src='assets/tiny-dungeon.png';
 let audio,master,music,previewTimer,startTime=0,notes=[],state='ready',mode='easy',spb=60/72,score=0,combo=0,maxCombo=0,hits=0,perfect=0,feedbackUntil=0,muted=false,bursts=[],flashes=[0,0,0,0],lastBeat=0;
-let silenced=[false,false,false,false],run=null,calib=null,practicing=false,practiceHits=0,practiceMisses=0,errorUntil=0;
+let phase='',silenced=[false,false,false,false],run=null,calib=null,practicing=false,practiceHits=0,practiceMisses=0,errorUntil=0;
 let learned=false;try{learned=localStorage.getItem('tempo-learned')==='yes'}catch{}
 let keys=layouts.asdf.keys,labels=layouts.asdf.labels;
 const pads=[...document.querySelectorAll('[data-lane]')];
@@ -18,7 +18,7 @@ async function ensureAudio(){
  if(!master){master=audio.createGain();master.connect(audio.destination);music=new Music(audio,master)}
  master.gain.value=muted?0:Number($('volume').value)/100*.65;
 }
-function soundtrack(){music.play({style:$('soundtrack').value,startTime,bpm:run.room.bpm,endBeat:run.room.endBeat,intensity:run.floor});}
+function soundtrack(){music.play({style:$('soundtrack').value,startTime,bpm:run.room.bpm,endBeat:run.room.endBeat,intensity:run.floor});music.calls(notes.filter(n=>n.kind==='call'));}
 function stopMusic(){clearTimeout(previewTimer);previewTimer=null;if(music)music.stop();$('preview-track').textContent='▶ Preview track';$('preview-track').setAttribute('aria-pressed','false');}
 function musicControls(playing){$('soundtrack').disabled=playing;$('preview-track').disabled=playing;$('key-layout').disabled=playing;$('practice').disabled=$('calibrate').disabled=$('calibrate-bar').disabled=playing||Boolean(run&&['loot','route'].includes(run.status));}
 async function previewTrack(){
@@ -35,6 +35,7 @@ function syncRun(){
  $('health').classList.toggle('run-danger',run.hp<=3);
  $('enemy-name').textContent=run.room.name+(run.room.elite?' · ELITE':'');
  $('enemy-hp').style.width=run.room.hp/run.room.maxHp*100+'%';
+ $('enemy-trait').textContent=practicing?'A practice dummy. It never attacks.':run.room.traitText+(run.room.elite?' Elite: more calls, more hits.':'');
  $('enemy-numbers').textContent=practicing?'Warm-up dummy · just find the beat':`${run.room.hp} / ${run.room.maxHp} HP`;
  $('enemy-sprite').style.backgroundPosition=`-${run.room.sprite%12*48}px -${Math.floor(run.room.sprite/12)*48}px`;
  $('room-title').textContent=practicing?'Safe practice':run.floor===5?'The final downbeat':`Room ${run.floor} / 5`;
@@ -53,7 +54,7 @@ function choiceButton(icon,title,description,action){
  i.textContent=icon;strong.textContent=title;span.textContent=description;button.append(i,strong,span);button.onclick=action;$('choices').append(button);
 }
 function prepareRoom(){
- stopMusic();spb=60/run.room.bpm;notes=practicing?practiceChart():roomChart(run,$('soundtrack').value);silenced=[false,false,false,false];combo=0;bursts=[];flashes=[0,0,0,0];errorUntil=0;
+ stopMusic();spb=60/run.room.bpm;notes=practicing?practiceChart():roomChart(run,$('soundtrack').value);silenced=[false,false,false,false];phase='';combo=0;bursts=[];flashes=[0,0,0,0];errorUntil=0;
  startTime=audio.currentTime+.25;state='playing';$('overlay').classList.add('hidden');$('overlay').classList.remove('choosing');$('choices').replaceChildren();
  $('pause').disabled=false;$('difficulty').disabled=true;$('pause').textContent='Ⅱ Pause · Space';
  $('status').textContent=practicing?'Practice: eight notes, no health loss.':'Only a missed note costs health. Wrong taps are free.';setJudgement(practicing?'Match the letter. Wait until the gem reaches its key.':'Four count-in beats. Wait for the first gem to reach its key.');$('combo').innerHTML='0<span>×</span>';
@@ -105,19 +106,40 @@ function conclude(){
  for(const id of run.choices){const r=relics.find(r=>r.id===id);choiceButton(r.icon,r.name,r.description,()=>{if(chooseRelic(run,id))showRoutes()})}
  $('hint').textContent=`${run.hp} / ${run.maxHp} health · ${run.cleared} of 5 rooms cleared`;return;
  }
+ if(run.status==='route'){showRoutes();return}
  state=run.status;$('difficulty').disabled=false;
  if(score>best()){try{localStorage.setItem('dungeon-tempo-run-best-'+mode,String(score))}catch{}}updateBest();
  const won=state==='won';showOverlay(won?'THE CURSE IS BROKEN':'YOUR RUN HAS ENDED',won?'The dungeon sings.':'The beat goes on.',`${run.cleared} / 5 rooms cleared · ${score.toLocaleString()} points · ${maxCombo} best combo`, 'Start a new run ↗');
  $('hint').textContent=won?'Five rooms. One band. A fresh dungeon awaits.':'Health and relics reset. Each new run brings different encounters.';
  $('status').textContent=won?'Victory! You defeated the Hollow Conductor.':'Fallen in the crypt. Start fresh and try a new build.';
 }
-function finish(){if(practicing){finishPractice();return}if(run.status!=='combat')return;run.hp=0;run.status='dead';conclude();$('overlay-copy').textContent=`The music ended with ${run.room.hp} enemy HP remaining. ${run.cleared} rooms cleared · ${score.toLocaleString()} points.`;}
+function finish(){
+ if(practicing){finishPractice();return}if(run.status!=='combat')return;
+ const name=run.room.name,left=run.room.hp,damage=fleeRoom(run);conclude();
+ if(run.status==='route'){$('overlay-label').textContent='THE SONG ENDED';$('overlay-copy').textContent=`${name} struck as it fled (−${damage} health) and took its relic with it. Your band presses on.`}
+ else $('overlay-copy').textContent=run.room.boss?`The final note faded with the Conductor still standing (${left} HP). ${run.cleared} rooms cleared · ${score.toLocaleString()} points.`:`${name}'s parting blow finished you. ${run.cleared} rooms cleared · ${score.toLocaleString()} points.`;
+}
+function cuePhase(p){
+ document.querySelector('.enemy-card')?.classList?.toggle('winding',p==='call');
+ if(p==='call'){feedback('LISTEN…','#ff8b83',900);setJudgement(`${run.room.name} is winding up. Listen to its rhythm: you will echo it next bar to block.`,'error')}
+ else if(p==='guard'){feedback('BLOCK!','#9fd8ff',700);setJudgement('Echo the call: hit the red shields to block.','')}
+ else if(p==='attack'){feedback('ATTACK!',colors[0],700);setJudgement('Your band attacks: every gem is a note of the song.','success')}
+}
+function jolt(selector,cls,ms){if(reduced)return;const el=document.querySelector(selector);if(!el?.classList)return;el.classList.remove(cls);void el.offsetWidth;el.classList.add(cls);setTimeout(()=>el.classList.remove(cls),ms)}
 function reportMiss(note){
  combo=0;$('combo').innerHTML='0<span>×</span>';note.missedAt=performance.now();
- const lane=note.lane;let impact;
- if(practicing){practiceMisses++;impact='no damage in practice'}else{const lost=hurt(run);impact=lost?'−1 health':'ward blocked the damage';syncRun()}
- if(!silenced[lane]){silenced[lane]=true;music.setLane(lane,false)}
- const message=`MISSED ${labels[lane]} · ${parts[lane].name.toLowerCase()} dropped out · ${impact}`;setJudgement(message,'error');feedback(message,'#ff9c9c',1400,true);
+ const lane=note.lane;let message;
+ if(practicing)practiceMisses++;
+ if(note.kind==='guard'){
+  const strength=run.room.boss?2:1,lost=hurt(run,strength);music.strike();jolt('.playfield','shake',320);jolt('.enemy-card','lunge',320);
+  message=lost?`${run.room.name} hits you · −${lost} health`:'Bone ward absorbed the hit';
+  setJudgement(message+'. Echo its call to block.','error');
+ }else{
+  if(!silenced[lane]){silenced[lane]=true;music.setLane(lane,false)}
+  message=`MISSED ${labels[lane]} · ${parts[lane].name.toLowerCase()} dropped out`;setJudgement(message+'. Hit that lane to bring it back.','error');
+ }
+ if(!practicing){const fed=enemyFeeds(run);if(fed)message+=` · it feeds +${fed}`;syncRun()}
+ feedback(message,'#ff9c9c',1400,true);
  pads[lane].classList.add('missed');setTimeout(()=>pads[lane].classList.remove('missed'),900);
  if(!practicing&&run.status==='dead')conclude();
 }
@@ -128,6 +150,7 @@ function tap(lane){
  if(beat<3.5){setJudgement('Count-in: wait for the first gem. No damage.');return}if(beat>run.room.endBeat)return;
  const n=nearest(notes,lane,beat,spb,hitWindow(run,modes[mode].window));
  flashes[lane]=performance.now()+120;pads[lane].classList.add('active');setTimeout(()=>pads[lane].classList.remove('active'),120);
+ if(!n&&phase==='call'&&!practicing){setJudgement('Just listen during the call. Echo it next bar to block.','');feedback('LISTEN…','#ff8b83',700,true);return}
  if(!n){
  const info=explainTap(notes,lane,beat,spb),message=info.kind==='WRONG KEY'?`WRONG KEY · try ${labels[info.expected]}`:`${info.kind} · ${labels[lane]}`;
  setJudgement(message+' · no damage','error');feedback(message,'#ffcf8a',1000,true);return;
@@ -135,9 +158,10 @@ function tap(lane){
  const rating=judge((n.beat-beat)*spb,hitWindow(run,modes[mode].window));n.state='hit';hits++;combo++;maxCombo=Math.max(combo,maxCombo);if(rating==='Perfect')perfect++;
  score+=({Perfect:100,Great:75,Good:50}[rating])*(1+Math.floor(Math.min(combo,40)/10));
  $('score').textContent=String(score).padStart(6,'0');$('combo').innerHTML=combo+'<span>×</span>';
+ if(n.kind==='guard'){music.block(lane);bursts.push({lane,t:performance.now()});feedback(`BLOCKED · ${rating}`,'#9fd8ff');setJudgement('Blocked! Echo the rest of the call.','success');return}
  const rejoined=silenced[lane];if(rejoined){silenced[lane]=false;music.setLane(lane,true)}
  if(practicing){practiceHits++;feedback(`${rating} · ${labels[lane]}` ,colors[lane]);setJudgement(`${practiceHits} / 8 hit — nice! Keep matching the keys.`,'success');music.cue(lane);bursts.push({lane,t:performance.now()});return}
- const damage=hitEnemy(run,rating);feedback(`${rating} · ${damage} damage`,colors[lane]);syncRun();if(rejoined)setJudgement(`${parts[lane].name} back in the mix. Keep it going!`,'success');
+ const damage=hitEnemy(run,rating);feedback(damage?`${rating} · ${damage} damage`:`${rating} · glances off the armor`,damage?colors[lane]:'#aab9c5');if(damage)jolt('.enemy-card','hurt',180);else setJudgement('Armored: only Great or Perfect hits get through.','error');syncRun();if(rejoined)setJudgement(`${parts[lane].name} back in the mix. Keep it going!`,'success');
  music.cue(lane);bursts.push({lane,t:performance.now()});
  $('status').textContent=`${run.room.name}: ${run.room.hp} HP remaining.`;if(run.status!=='combat')conclude();
 }
@@ -173,7 +197,10 @@ g.globalAlpha=.5;for(let x=0;x<20;x++){sprite(14,x*32,5,32);sprite(36,x*32,37,32
 const pulse=reduced?0:Math.max(0,1-((Math.max(beat,0)%1)*4));
 for(let lane=0;lane<4;lane++){const x=32+lane*144;g.fillStyle=lane%2?'#1c2330':'#19212b';g.fillRect(x,83,144,390);g.strokeStyle='#ffffff07';g.strokeRect(x,83,144,390);g.globalAlpha=.04+pulse*.04;g.fillStyle=colors[lane];g.fillRect(x,83,144,390);g.globalAlpha=1;g.fillStyle=colors[lane];g.globalAlpha=.14;g.beginPath();g.ellipse(x+72,75,34,8,0,0,Math.PI*2);g.fill();g.globalAlpha=1;const hop=reduced?0:bursts.filter(p=>p.lane===lane).reduce((h,p)=>Math.max(h,10*(1-(now-p.t)/400)),0);if(silenced[lane])g.globalAlpha=.3;sprite([96,84,112,121][lane],x+48,20-(reduced||silenced[lane]?0:pulse*5)-hop+(silenced[lane]?6:0),48);g.globalAlpha=1;g.font='bold 10px sans-serif';g.textAlign='center';g.fillStyle=silenced[lane]?'#ff8b83':colors[lane];g.globalAlpha=silenced[lane]?.9:.55;g.fillText(silenced[lane]?parts[lane].name.toUpperCase()+' · OUT':parts[lane].name.toUpperCase(),x+72,101);g.globalAlpha=1;g.fillStyle=colors[lane];g.globalAlpha=.45;g.fillRect(x+8,466,128,3);g.globalAlpha=1;if(flashes[lane]>now){g.globalAlpha=.2;g.fillRect(x,400,144,110);g.globalAlpha=1}}
 g.fillStyle='#8796a4';g.font='10px monospace';g.textAlign='center';
-const renderNotes=state==='ready'?chart('normal').slice(0,8):notes;for(const n of renderNotes){if(n.state==='miss'&&now-n.missedAt<900){g.fillStyle='#ff8b83';g.font='bold 34px sans-serif';g.textAlign='center';g.fillText('×',104+n.lane*144,425);continue}if(n.state!=='pending')continue;const distance=n.beat-(state==='ready'?1:beat),y=468-distance*105;if(y<95||y>520)continue;const x=104+n.lane*144;g.fillStyle=colors[n.lane];g.globalAlpha=.14;g.fillRect(x-35,y-17,70,34);g.globalAlpha=1;g.save();g.translate(x,y);g.rotate(Math.PI/4);g.fillRect(-12,-12,24,24);g.fillStyle='#ffffff77';g.fillRect(-7,-7,7,7);g.restore();g.fillStyle='#17202b';g.font='bold 15px sans-serif';g.textAlign='center';g.fillText(labels[n.lane],x,y+5)}
+const renderNotes=state==='ready'?chart('normal').slice(0,8):notes;
+// The enemy's call: lanes flash red on each telegraphed beat.
+if(state==='playing'||state==='paused')for(const n of notes){if(n.kind!=='call')continue;const since=beat-n.beat;if(since<-.02||since>.4)continue;const x=32+n.lane*144,k=1-since/.4;g.globalAlpha=.35*k;g.fillStyle='#ff5a52';g.fillRect(x,83,144,390);g.globalAlpha=k;g.fillStyle='#ff8b83';g.font='bold 40px sans-serif';g.textAlign='center';g.fillText('!',x+72,160);g.globalAlpha=1}
+if(state==='playing'&&run&&!practicing&&run.room.plan){const now_phase=run.room.plan[Math.floor((beat-4)/4)]||'';if(beat>=4&&now_phase!==phase){phase=now_phase;cuePhase(phase)}}for(const n of renderNotes){if(n.state==='miss'&&now-n.missedAt<900){g.fillStyle='#ff8b83';g.font='bold 34px sans-serif';g.textAlign='center';g.fillText('×',104+n.lane*144,425);continue}if(n.state!=='pending')continue;const distance=n.beat-(state==='ready'?1:beat),y=468-distance*105;if(y<95||y>520)continue;const x=104+n.lane*144;if(n.webbed&&distance>1.4){g.globalAlpha=.35;g.strokeStyle='#cfd6de';g.lineWidth=1;for(let k=0;k<3;k++){g.beginPath();g.arc(x,y,8+k*7,0,Math.PI*2);g.stroke()}g.globalAlpha=1;continue}if(n.kind==='guard'){g.fillStyle='#ff8b83';g.globalAlpha=.16;g.fillRect(x-35,y-17,70,34);g.globalAlpha=1;g.fillStyle='#2a1a20';g.strokeStyle='#ff8b83';g.lineWidth=3;g.beginPath();g.moveTo(x-15,y-15);g.lineTo(x+15,y-15);g.lineTo(x+15,y+2);g.quadraticCurveTo(x+15,y+14,x,y+19);g.quadraticCurveTo(x-15,y+14,x-15,y+2);g.closePath();g.fill();g.stroke();g.lineWidth=1;g.fillStyle='#ffb1a8';g.font='bold 15px sans-serif';g.textAlign='center';g.fillText(labels[n.lane],x,y+6);continue}g.fillStyle=colors[n.lane];g.globalAlpha=.14;g.fillRect(x-35,y-17,70,34);g.globalAlpha=1;g.save();g.translate(x,y);g.rotate(Math.PI/4);g.fillRect(-12,-12,24,24);g.fillStyle='#ffffff77';g.fillRect(-7,-7,7,7);g.restore();g.fillStyle='#17202b';g.font='bold 15px sans-serif';g.textAlign='center';g.fillText(labels[n.lane],x,y+5)}
 bursts=bursts.filter(p=>now-p.t<400);if(!reduced)for(const p of bursts){const k=(now-p.t)/400;g.globalAlpha=1-k;g.strokeStyle=colors[p.lane];g.beginPath();g.arc(104+p.lane*144,468,20+k*45,0,Math.PI*2);g.stroke();g.globalAlpha=1}
 if(state==='playing'){const adjusted=(audio.currentTime-startTime-Number($('offset').value)/1000)/spb;for(const n of notes){if(n.state==='pending'&&(adjusted-n.beat)*spb>hitWindow(run,modes[mode].window)){n.state='miss';combo=0;$('combo').innerHTML='0<span>×</span>';reportMiss(n);if(state!=='playing')break}}$('progress').style.width=Math.max(0,Math.min(100,beat/run.room.endBeat*100))+'%';const remaining=Math.max(0,Math.ceil((run.room.endBeat-beat)*spb));$('time').textContent=`${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')}`;if(beat>=0&&beat<3.5){$('feedback').textContent=String(4-Math.floor(beat));feedbackUntil=now+50}if(state==='playing'&&beat>=run.room.endBeat)finish()}
 if(now>feedbackUntil||state!=='playing')$('feedback').textContent='';requestAnimationFrame(draw)}

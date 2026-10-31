@@ -17,9 +17,9 @@
  </section>
  <section class="panel relic-panel"><h3 class="label">Relics</h3><div id="relics">Nothing yet. Earn your first victory.</div><small id="seed">A fresh dungeon with every run.</small></section>
  <section class="panel howto"><h3 class="label">How to survive</h3><ol>
-  <li><b>You are the band.</b> Each lane is a part: drums, melody, bass, chords. Every gem is a real note of the song.</li>
-  <li><b>Miss and that part drops out</b> of the music until you hit its lane again. Misses cost health; early or wrong taps are free.</li>
-  <li><b>Win the room</b> before the music stops. Pick a relic, pick a door.</li>
+  <li><b>You are the band.</b> Each lane is a part: drums, melody, bass, chords. Every gem is a real note; hits damage the enemy.</li>
+  <li><b>Listen, then block.</b> When the enemy winds up, its lanes flash red. Echo that rhythm on the red shields next bar, or take the hit.</li>
+  <li><b>Band misses don't hurt</b>, but that part drops out until you hit its lane again. Win before the song ends, or the enemy flees with your relic.</li>
  </ol></section>
  <footer class="credits">Pixel art by <a href="https://kenney.nl/assets/tiny-dungeon" target="_blank" rel="noreferrer">Kenney</a> · <a href="assets/Kenney-License.txt">CC0</a><br>Music synthesized for this game</footer>
 </aside>
@@ -32,7 +32,7 @@
 </section>
 
 <aside class="side right">
- <section class="panel enemy-card"><span id="enemy-sprite"></span><div><h3 class="label">Enemy</h3><strong id="enemy-name">Something stirs below…</strong><div class="enemy-bar"><div id="enemy-hp"></div></div><small id="enemy-numbers">Your timing is your weapon.</small></div></section>
+ <section class="panel enemy-card"><span id="enemy-sprite"></span><div><h3 class="label">Enemy</h3><strong id="enemy-name">Something stirs below…</strong><div class="enemy-bar"><div id="enemy-hp"></div></div><small id="enemy-numbers">Your timing is your weapon.</small><small id="enemy-trait" class="trait"></small></div></section>
  <div id="judgement" role="status">Match the letter on the gem. Press when it overlaps its key.</div>
  <section class="panel setup"><h3 class="label">Setup</h3>
   <label class="field"><span>Soundtrack</span><select id="soundtrack"><option value="synth">Neon Catacombs · Synthwave</option><option value="funk">Graveyard Shift · Dungeon funk</option><option value="chip">8-Bit Afterlife · Chiptune</option></select></label>

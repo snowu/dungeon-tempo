@@ -20,7 +20,7 @@ const assert=require('node:assert/strict');
   }
  }
  assert.match(await page.locator('#overlay-label').textContent(),/CURSE IS BROKEN/);assert.ok(Number(await page.locator('#score').textContent())>0);await page.screenshot({path:'/tmp/rogue-victory.png',fullPage:true});
- await page.click('#start');assert.equal(await page.locator('#health').textContent(),'♥ 12 / 12');assert.equal(await page.locator('.relic-chip').count(),0);await page.waitForFunction(()=>document.querySelector('#overlay-label').textContent==='YOUR RUN HAS ENDED',null,{timeout:15000});assert.equal(await page.locator('#health').textContent(),'♥ 0 / 12');assert.deepEqual(errors,[]);
+ await page.click('#start');assert.equal(await page.locator('#health').textContent(),'♥ 12 / 12');assert.equal(await page.locator('.relic-chip').count(),0);await page.waitForFunction(()=>document.querySelector('#overlay-label').textContent==='THE SONG ENDED',null,{timeout:40000});const left=Number((await page.locator('#health').textContent()).match(/♥ (\d+)/)[1]);assert.ok(left>0&&left<12,'idle room: guards and the fleeing strike hurt, but are not fatal');assert.equal(await page.locator('.relic-chip').count(),0);await page.locator('.choice').first().click();await page.waitForFunction(()=>document.querySelector('#overlay-label').textContent==='YOUR RUN HAS ENDED',null,{timeout:40000});assert.equal(await page.locator('#health').textContent(),'♥ 0 / 12');assert.deepEqual(errors,[]);
  console.log('PASS: real-clock five-room victory, elite route, relics, boss, keyboard/touch combat, pause/resume, mobile layout, permadeath and restart.');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
