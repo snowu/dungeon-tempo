@@ -62,7 +62,7 @@ a{color:var(--lime);text-underline-offset:3px}
 .control-bar #calibrate-bar{margin-left:auto}
 .control-bar button{border:1px solid #4d5d3c;background:transparent;color:var(--lime);border-radius:6px;padding:7px 10px;font-size:11px;white-space:nowrap}
 .playfield-wrap{flex:1;min-height:0;display:grid;place-items:center;container-type:size;padding:6px}
-.playfield{position:relative;aspect-ratio:640/560;width:min(100cqw,calc(100cqh * 640 / 560))}
+.playfield{position:relative;aspect-ratio:640/680;width:min(100cqw,calc(100cqh * 640 / 680))}
 canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
 .progress{height:3px;background:#ffffff08}
 .progress>div{height:100%;width:0;background:var(--lime);box-shadow:0 0 8px var(--lime)}
@@ -71,8 +71,8 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
 kbd{font-family:inherit}
 .stage-bottom kbd{border:1px solid var(--line-2);border-radius:4px;padding:1px 5px;margin-left:6px;font-size:10px}
 
-/* Keycaps are the receptors: lane centres are 104+144n of 640, hit line 468 of 560. */
-.pads{position:absolute;left:5%;width:90%;top:83.571428%;transform:translateY(-50%);display:grid;grid-template-columns:repeat(4,1fr);z-index:2;pointer-events:none}
+/* Keycaps are the receptors: lane centres are 104+144n of 640, hit line 548 of 680. */
+.pads{position:absolute;left:5%;width:90%;top:80.588235%;transform:translateY(-50%);display:grid;grid-template-columns:repeat(4,1fr);z-index:2;pointer-events:none}
 .pads button:nth-child(1){--color:var(--lime)}.pads button:nth-child(2){--color:var(--violet)}.pads button:nth-child(3){--color:var(--teal)}.pads button:nth-child(4){--color:var(--peach)}
 .pads button{pointer-events:auto;justify-self:center;display:grid;place-items:center;width:clamp(44px,11cqw,72px);height:clamp(44px,9cqw,60px);padding:0;border:2px solid var(--color);border-bottom-width:5px;border-radius:9px;background:#19222ee8;box-shadow:0 3px 0 #06080c;transition:background .08s,transform .08s;touch-action:none}
 .pads kbd{font:700 clamp(18px,3cqw,26px)/1 var(--display);color:var(--color)}
@@ -182,3 +182,9 @@ input[type=range]{width:100%;accent-color:var(--lime);margin:0}
 .playfield.shake{animation:shake .32s}
 @keyframes shake{20%{transform:translate(-6px,2px)}40%{transform:translate(5px,-3px)}60%{transform:translate(-4px,1px)}80%{transform:translate(3px,0)}}
 @media (prefers-reduced-motion:reduce){.enemy-card.winding #enemy-sprite{animation:none}}
+.layout-hint{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.reward{color:#ffd27a;font-size:12px;margin-bottom:8px}.reward:empty{display:none}
+.choice.elite{border-color:#7a3a3a}.choice.elite strong{color:#ff9c8f}
+.choice.rest{border-color:#2f5a44}.choice.rest strong{color:#7cf0a0}
+.choice.boss{border-color:#8a6a2a;grid-column:1/-1}.choice.boss strong{color:#ffd27a}
+@media (max-width:760px){.layout-hint{display:none}}
