@@ -1,3 +1,4 @@
+import {compose,laneOf} from './music.js';
 // Deterministic runs: the same seed, difficulty and door choices give the same dungeon.
 export function random(seed) { let s=seed>>>0; return ()=>{s+=0x6D2B79F5;let t=s;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}; }
 export const relics=[
@@ -20,12 +21,22 @@ export function makeRoom(run,route='crypt') {
 export function newRun(seed,mode='normal') {
  const run={seed:seed>>>0,mode,floor:1,hp:mode==='easy'?16:12,maxHp:mode==='easy'?16:12,relics:[],status:'combat',cleared:0,choices:[],path:['crypt']};run.room=makeRoom(run);return run;
 }
-export function roomChart(run) {
- const rng=random(run.seed^Math.imul(run.floor,1013)^(run.room.elite?993:0));
- const motif=Array.from({length:8},()=>Math.floor(rng()*4));const notes=[];
- for(let beat=4;beat<34;beat+=(run.mode==='easy'&&run.floor<=2?2:1)) { const lane=motif[beat%8]; notes.push({beat,lane,state:'pending'});
- if(run.mode!=='easy'&&(run.mode==='hard'||run.room.elite||run.room.boss)&&beat%4===2)notes.push({beat:beat+.5,lane:(lane+1+Math.floor(rng()*3))%4,state:'pending'});
- }return notes;
+// Every gem is a real note of the arrangement, and each bar spotlights one bandmate.
+export function roomChart(run,style='synth') {
+ const rng=random(run.seed^Math.imul(run.floor,1013)^(run.room.elite?993:0)),easy=run.mode==='easy',extra=run.room.elite||run.room.boss;
+ const grid=easy?1:run.mode==='hard'?.25:.5,gap=easy?(run.floor<=2?2:1):.5;
+ const target=(easy?(run.floor<=2?15:24):run.mode==='hard'?40:30)+(extra?6:0);
+ const spotlight=[0,...[1,2,3,1,2,3,0].map(l=>({l,n:rng()})).sort((a,b)=>a.n-b.n).map(x=>x.l)];
+ const seen=new Set(),candidates=[];
+ for(const e of compose(style,run.room.endBeat,run.floor)){
+  const lane=laneOf(e.kind),key=e.beat+':'+lane;
+  if(lane<0||e.beat<4||e.beat>=34||Math.abs(e.beat/grid-Math.round(e.beat/grid))>1e-6||seen.has(key))continue;seen.add(key);
+  const featured=spotlight[Math.floor((e.beat-4)/4)%8]===lane;
+  candidates.push({beat:e.beat,lane,priority:(featured?2:0)+(e.beat%1===0?1:0)+(e.beat%2===0?.4:0)+rng()*.8});
+ }
+ const chosen=[];
+ for(const c of candidates.sort((a,b)=>b.priority-a.priority)){if(chosen.length>=target)break;if(chosen.every(n=>Math.abs(n.beat-c.beat)>=gap-1e-9))chosen.push(c)}
+ return chosen.sort((a,b)=>a.beat-b.beat).map(({beat,lane})=>({beat,lane,state:'pending'}));
 }
 export function hitEnemy(run,rating) {
  if(run.status!=='combat')return 0;

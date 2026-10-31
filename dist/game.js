@@ -1,11 +1,11 @@
 import {modes,chart,judge,nearest} from './rhythm.js';
 import {layouts,practiceChart,explainTap,calibrate} from './controls.js';
-import {Music,tracks} from './music.js';
+import {Music,tracks,parts} from './music.js';
 import {newRun,roomChart,hitEnemy,hurt,chooseRelic,enterRoom,hitWindow,relics} from './expedition.js';
 const $=id=>document.getElementById(id), canvas=$('game'), g=canvas.getContext('2d'), colors=['#d7f779','#c7abff','#7cdbd6','#ffb180'];
 const art=new Image();art.src='assets/tiny-dungeon.png';
 let audio,master,music,previewTimer,startTime=0,notes=[],state='ready',mode='easy',spb=60/72,score=0,combo=0,maxCombo=0,hits=0,perfect=0,feedbackUntil=0,muted=false,bursts=[],flashes=[0,0,0,0],lastBeat=0;
-let run=null,calib=null,practicing=false,practiceHits=0,practiceMisses=0,errorUntil=0;
+let silenced=[false,false,false,false],run=null,calib=null,practicing=false,practiceHits=0,practiceMisses=0,errorUntil=0;
 let learned=false;try{learned=localStorage.getItem('tempo-learned')==='yes'}catch{}
 let keys=layouts.asdf.keys,labels=layouts.asdf.labels;
 const pads=[...document.querySelectorAll('[data-lane]')];
@@ -53,7 +53,7 @@ function choiceButton(icon,title,description,action){
  i.textContent=icon;strong.textContent=title;span.textContent=description;button.append(i,strong,span);button.onclick=action;$('choices').append(button);
 }
 function prepareRoom(){
- stopMusic();spb=60/run.room.bpm;notes=practicing?practiceChart():roomChart(run);combo=0;bursts=[];flashes=[0,0,0,0];errorUntil=0;
+ stopMusic();spb=60/run.room.bpm;notes=practicing?practiceChart():roomChart(run,$('soundtrack').value);silenced=[false,false,false,false];combo=0;bursts=[];flashes=[0,0,0,0];errorUntil=0;
  startTime=audio.currentTime+.25;state='playing';$('overlay').classList.add('hidden');$('overlay').classList.remove('choosing');$('choices').replaceChildren();
  $('pause').disabled=false;$('difficulty').disabled=true;$('pause').textContent='Ⅱ Pause · Space';
  $('status').textContent=practicing?'Practice: eight notes, no health loss.':'Only a missed note costs health. Wrong taps are free.';setJudgement(practicing?'Match the letter. Wait until the gem reaches its key.':'Four count-in beats. Wait for the first gem to reach its key.');$('combo').innerHTML='0<span>×</span>';
@@ -116,7 +116,8 @@ function reportMiss(note){
  combo=0;$('combo').innerHTML='0<span>×</span>';note.missedAt=performance.now();
  const lane=note.lane;let impact;
  if(practicing){practiceMisses++;impact='no damage in practice'}else{const lost=hurt(run);impact=lost?'−1 health':'ward blocked the damage';syncRun()}
- const message=`MISSED ${labels[lane]} · ${impact}`;setJudgement(message,'error');feedback(message,'#ff9c9c',1400,true);
+ if(!silenced[lane]){silenced[lane]=true;music.setLane(lane,false)}
+ const message=`MISSED ${labels[lane]} · ${parts[lane].name.toLowerCase()} dropped out · ${impact}`;setJudgement(message,'error');feedback(message,'#ff9c9c',1400,true);
  pads[lane].classList.add('missed');setTimeout(()=>pads[lane].classList.remove('missed'),900);
  if(!practicing&&run.status==='dead')conclude();
 }
@@ -134,8 +135,9 @@ function tap(lane){
  const rating=judge((n.beat-beat)*spb,hitWindow(run,modes[mode].window));n.state='hit';hits++;combo++;maxCombo=Math.max(combo,maxCombo);if(rating==='Perfect')perfect++;
  score+=({Perfect:100,Great:75,Good:50}[rating])*(1+Math.floor(Math.min(combo,40)/10));
  $('score').textContent=String(score).padStart(6,'0');$('combo').innerHTML=combo+'<span>×</span>';
+ const rejoined=silenced[lane];if(rejoined){silenced[lane]=false;music.setLane(lane,true)}
  if(practicing){practiceHits++;feedback(`${rating} · ${labels[lane]}` ,colors[lane]);setJudgement(`${practiceHits} / 8 hit — nice! Keep matching the keys.`,'success');music.cue(lane);bursts.push({lane,t:performance.now()});return}
- const damage=hitEnemy(run,rating);feedback(`${rating} · ${damage} damage`,colors[lane]);syncRun();
+ const damage=hitEnemy(run,rating);feedback(`${rating} · ${damage} damage`,colors[lane]);syncRun();if(rejoined)setJudgement(`${parts[lane].name} back in the mix. Keep it going!`,'success');
  music.cue(lane);bursts.push({lane,t:performance.now()});
  $('status').textContent=`${run.room.name}: ${run.room.hp} HP remaining.`;if(run.status!=='combat')conclude();
 }
@@ -169,7 +171,7 @@ function draw(now){const beat=state==='playing'||state==='paused'?(audio.current
 // The band's little stone stage, built from Kenney's 16px tiles.
 g.globalAlpha=.5;for(let x=0;x<20;x++){sprite(14,x*32,5,32);sprite(36,x*32,37,32)}g.globalAlpha=1;
 const pulse=reduced?0:Math.max(0,1-((Math.max(beat,0)%1)*4));
-for(let lane=0;lane<4;lane++){const x=32+lane*144;g.fillStyle=lane%2?'#1c2330':'#19212b';g.fillRect(x,83,144,390);g.strokeStyle='#ffffff07';g.strokeRect(x,83,144,390);g.globalAlpha=.04+pulse*.04;g.fillStyle=colors[lane];g.fillRect(x,83,144,390);g.globalAlpha=1;g.fillStyle=colors[lane];g.globalAlpha=.14;g.beginPath();g.ellipse(x+72,75,34,8,0,0,Math.PI*2);g.fill();g.globalAlpha=1;sprite([96,84,112,121][lane],x+48,20-(reduced?0:pulse*5),48);g.fillStyle=colors[lane];g.globalAlpha=.45;g.fillRect(x+8,466,128,3);g.globalAlpha=1;if(flashes[lane]>now){g.globalAlpha=.2;g.fillRect(x,400,144,110);g.globalAlpha=1}}
+for(let lane=0;lane<4;lane++){const x=32+lane*144;g.fillStyle=lane%2?'#1c2330':'#19212b';g.fillRect(x,83,144,390);g.strokeStyle='#ffffff07';g.strokeRect(x,83,144,390);g.globalAlpha=.04+pulse*.04;g.fillStyle=colors[lane];g.fillRect(x,83,144,390);g.globalAlpha=1;g.fillStyle=colors[lane];g.globalAlpha=.14;g.beginPath();g.ellipse(x+72,75,34,8,0,0,Math.PI*2);g.fill();g.globalAlpha=1;const hop=reduced?0:bursts.filter(p=>p.lane===lane).reduce((h,p)=>Math.max(h,10*(1-(now-p.t)/400)),0);if(silenced[lane])g.globalAlpha=.3;sprite([96,84,112,121][lane],x+48,20-(reduced||silenced[lane]?0:pulse*5)-hop+(silenced[lane]?6:0),48);g.globalAlpha=1;g.font='bold 10px sans-serif';g.textAlign='center';g.fillStyle=silenced[lane]?'#ff8b83':colors[lane];g.globalAlpha=silenced[lane]?.9:.55;g.fillText(silenced[lane]?parts[lane].name.toUpperCase()+' · OUT':parts[lane].name.toUpperCase(),x+72,101);g.globalAlpha=1;g.fillStyle=colors[lane];g.globalAlpha=.45;g.fillRect(x+8,466,128,3);g.globalAlpha=1;if(flashes[lane]>now){g.globalAlpha=.2;g.fillRect(x,400,144,110);g.globalAlpha=1}}
 g.fillStyle='#8796a4';g.font='10px monospace';g.textAlign='center';
 const renderNotes=state==='ready'?chart('normal').slice(0,8):notes;for(const n of renderNotes){if(n.state==='miss'&&now-n.missedAt<900){g.fillStyle='#ff8b83';g.font='bold 34px sans-serif';g.textAlign='center';g.fillText('×',104+n.lane*144,425);continue}if(n.state!=='pending')continue;const distance=n.beat-(state==='ready'?1:beat),y=468-distance*105;if(y<95||y>520)continue;const x=104+n.lane*144;g.fillStyle=colors[n.lane];g.globalAlpha=.14;g.fillRect(x-35,y-17,70,34);g.globalAlpha=1;g.save();g.translate(x,y);g.rotate(Math.PI/4);g.fillRect(-12,-12,24,24);g.fillStyle='#ffffff77';g.fillRect(-7,-7,7,7);g.restore();g.fillStyle='#17202b';g.font='bold 15px sans-serif';g.textAlign='center';g.fillText(labels[n.lane],x,y+5)}
 bursts=bursts.filter(p=>now-p.t<400);if(!reduced)for(const p of bursts){const k=(now-p.t)/400;g.globalAlpha=1-k;g.strokeStyle=colors[p.lane];g.beginPath();g.arc(104+p.lane*144,468,20+k*45,0,Math.PI*2);g.stroke();g.globalAlpha=1}

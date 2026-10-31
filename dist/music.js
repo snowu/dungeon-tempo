@@ -4,6 +4,11 @@ export const tracks={
  funk:{name:'Graveyard Shift',description:'Dungeon funk · electric keys, syncopated bass, shuffled hats'},
  chip:{name:'8-Bit Afterlife',description:'Retro chiptune · pulse lead, triangle bass, tiny drum machine'}
 };
+// The band: each lane plays one part of the arrangement. Hats and the count-in stay on regardless.
+export const parts=[{name:'Drums',player:'Knight',kinds:['kick','snare']},{name:'Melody',player:'Mage',kinds:['lead']},{name:'Bass',player:'Rogue',kinds:['bass']},{name:'Chords',player:'Skeleton',kinds:['pad','keys','arp']}];
+// Bus levels bring melody, bass and chords up to the drums so any part dropping out is audible.
+const laneLevels={synth:[.7,2.4,1.5,2.2],funk:[.7,2.4,1.5,1],chip:[.75,3.6,1.6,14]};
+export const laneOf=kind=>parts.findIndex(p=>p.kinds.includes(kind));
 const chords=[{root:38,notes:[62,65,69,76]},{root:34,notes:[62,65,69,72]},{root:41,notes:[60,64,69,67]},{root:36,notes:[60,64,67,74]}];
 const melody=[
  [[0,74,.65],[1.5,77,.35],[2,81,.8],[3.5,77,.35]],
@@ -57,7 +62,8 @@ export class Music {
   bus.gain.value=.8;mix.threshold.value=-15;mix.knee.value=12;mix.ratio.value=3;mix.attack.value=.006;mix.release.value=.15;
   const makeup=c.createGain();makeup.gain.value=1.8;bus.connect(mix);mix.connect(makeup);makeup.connect(this.output);delay.delayTime.value=spb*.75;feedback.gain.value=.24;damp.type='lowpass';damp.frequency.value=2400;
   delay.connect(damp);damp.connect(feedback);feedback.connect(delay);wet.gain.value=style==='chip'?.09:.16;damp.connect(wet);wet.connect(bus);
-  const session={style,startTime,spb,bus,delay,nodes:[bus,mix,makeup,delay,wet,feedback,damp],sources:[],stopped:false};this.session=session;
+  const levels=laneLevels[style]||laneLevels.synth,lanes=parts.map((_,i)=>{const g=c.createGain();g.gain.value=levels[i];g.connect(bus);return g});
+  const session={style,startTime,spb,bus,lanes,levels,delay,nodes:[bus,mix,makeup,delay,wet,feedback,damp,...lanes],sources:[],stopped:false};this.session=session;
   for(const event of compose(style,endBeat,intensity)){if(skipCountIn&&event.beat<4)continue;this.event(session,event,startTime+(event.beat-(skipCountIn?4:0))*spb);}
   return session;
  }
@@ -82,6 +88,11 @@ export class Music {
   const c=this.context,source=c.createBufferSource(),f=c.createBiquadFilter();source.buffer=this.noise;f.type='highpass';f.frequency.value=cutoff;source.connect(f);f.connect(this.envelope(s,time,length,level,pan));s.nodes.push(f);this.source(s,source,time,length);
  }
  event(s,e,t){
+  // Route the voice through its bandmate's bus so a miss can drop that part out of the mix.
+  const lane=laneOf(e.kind),bus=s.bus;if(lane>=0&&s.lanes)s.bus=s.lanes[lane];
+  try{this.voice(s,e,t)}finally{s.bus=bus}
+ }
+ voice(s,e,t){
   const length=e.length*s.spb,v=e.velocity,c=this.context,f=hz(e.note);
   if(e.kind==='click'){this.osc(s,t,.045,f,'sine',.12*v);return}
   if(e.kind==='kick'){const o=this.osc(s,t,.28,130,'sine',.66*v);o.frequency.exponentialRampToValueAtTime(43,t+.08);this.noiseHit(s,t,.014,.075*v,1800);return}
@@ -113,6 +124,10 @@ export class Music {
   // Sharp attack so the heard onset is unambiguous; first click of each bar is accented.
   for(let i=0;i<count;i++){const t=startTime+i*spb,accent=i%4===0;this.osc(session,t,.06,accent?1760:1320,'square',accent?.11:.08,0,0,.001);this.noiseHit(session,t,.012,.1,4000)}
   return Array.from({length:count},(_,i)=>startTime+i*spb);
+ }
+ setLane(lane,on){
+  const s=this.session;if(!s||s.stopped||!s.lanes)return;const g=s.lanes[lane].gain,t=this.context.currentTime;
+  g.cancelScheduledValues(t);g.setValueAtTime(g.value,t);g.linearRampToValueAtTime(s.levels[lane]*(on?1:.06),t+(on?.03:.12));
  }
  cue(lane){
   const s=this.session;if(!s||s.stopped)return;
