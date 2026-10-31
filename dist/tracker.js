@@ -13,15 +13,20 @@ export const songs={
  'mega-destruction':{name:'Mega Destruction',artist:'Zilly Mike',file:'mega-destruction.xm',id:50252,rpb:8,lanes:[[0,3,5,6],[1],[4,7],[2,8]]}
 };
 for(const s of Object.values(songs)){s.url=page(s.id);s.description=`${s.artist} · public-domain tracker module from The Mod Archive`}
-export const isTracker=style=>Boolean(songs[style]);
+// The dungeon mixtape: a new song every floor, rising in tempo; an elite door jumps to the next floor's song; the boss gets the heaviest.
+export const setlist=['dim-dungeon','dim-dungeon-2','war-path','necromancer','djinn','crusaders','crusaders','mega-destruction'];
+export const mixtape={name:'Dungeon mixtape',description:'A new song every room, faster the deeper you go · Drozerix, JAM and Zilly Mike, public domain'};
+export const songFor=(style,floor=1,elite=false)=>style!=='mixtape'?style:setlist[floor>=setlist.length?setlist.length-1:Math.min(setlist.length-2,floor-1+(elite?1:0))];
+export const isTracker=style=>Boolean(songs[style])||style==='mixtape';
 
 let L=null,loading=null;
 export function openmpt(){return loading??=import('./vendor/libopenmpt.js').then(m=>m.default()).then(lib=>L=lib)}
 // Loads a song once: fetches the module (or takes `bytes`) and reads its timing and notes.
-export async function loadSong(id,bytes){
- const s=songs[id];if(!s||s.data)return s;await openmpt();
- bytes??=new Uint8Array(await (await fetch(new URL('./songs/'+s.file,import.meta.url))).arrayBuffer());
- s.bytes=bytes;s.data=analyze(bytes,s.rpb);s.stems=s.lanes.map(chs=>isolate(bytes,new Set(chs)));return s;
+export function loadSong(id,bytes){
+ const s=songs[id];if(!s)return Promise.resolve(s);
+ return s.loading??=(async()=>{await openmpt();
+  bytes??=new Uint8Array(await (await fetch(new URL('./songs/'+s.file,import.meta.url))).arrayBuffer());
+  s.bytes=bytes;s.data={...analyze(bytes,s.rpb),lanes:s.lanes};s.stems=s.lanes.map(chs=>isolate(bytes,new Set(chs)));return s})().catch(e=>{s.loading=null;throw e});
 }
 
 function open(bytes,fn){
@@ -42,11 +47,13 @@ export function analyze(bytes,rpb){return open(bytes,m=>{
 })}
 
 // Every floor starts somewhere else in the song, at the top of a pattern whose notes sit on the beat grid from there
-// (some songs open with an odd-length pattern that shifts everything after it).
-const onGrid=(data,from)=>{const near=data.notes.filter(n=>n.beat>=from&&n.beat<from+32);return near.filter(n=>((n.beat-from)*2)%1===0).length/Math.max(1,near.length)};
+// (some songs open with an odd-length pattern that shifts everything after it) and where every bandmate is already playing.
+const window32=(data,from)=>data.notes.filter(n=>n.beat>=from&&n.beat<from+32&&((n.beat-from)*2)%1===0);
+const onGrid=(data,from)=>window32(data,from).length/Math.max(1,data.notes.filter(n=>n.beat>=from&&n.beat<from+32).length);
+const playing=(data,from)=>{const near=window32(data,from);return data.lanes?data.lanes.filter(chs=>near.filter(n=>chs.includes(n.ch)).length>=4).length:4};
 export function startOf(data,intensity=1){
- const scored=data.starts.filter(s=>s.beat<data.total-8).map(s=>({...s,grid:onGrid(data,s.beat)})),best=Math.max(...scored.map(s=>s.grid));
- const options=scored.filter(s=>s.grid>=best*.8),pick=options[Math.floor((Math.max(1,intensity)-1)*options.length/8)%options.length];
+ const scored=data.starts.filter(s=>s.beat<data.total-8).map(s=>({...s,grid:onGrid(data,s.beat),lanes:playing(data,s.beat)})),best=Math.max(...scored.map(s=>s.grid));
+ const aligned=scored.filter(s=>s.grid>=best*.8),most=Math.max(...aligned.map(s=>s.lanes)),options=aligned.filter(s=>s.lanes===most),pick=options[Math.floor((Math.max(1,intensity)-1)*options.length/8)%options.length];
  return pick||{order:0,beat:0};
 }
 
@@ -60,8 +67,8 @@ export function trackerScore(id,endBeat=36,intensity=1){
  for(let pass=0,at=4+total-from;at<endBeat&&total>loop;pass++,at+=total-loop)for(const n of notes)if(n.beat>=loop)place(n,at+n.beat-loop);
  return events.sort((a,b)=>a.beat-b.beat);
 }
-// Room tempo maps onto the song's own tempo: Normal plays it as written, faster rooms speed it up.
-export const trackerBpm=(id,roomBpm)=>songs[id].data.bpm*Math.min(1.2,Math.max(.75,roomBpm/108));
+// Songs keep their own tempo; only the pace scales them (pitch unchanged). Deeper floors get faster songs instead.
+export const trackerBpm=(id,pace='normal')=>songs[id].data.bpm*({easy:.8,normal:1,hard:1.12}[pace]||1);
 
 // A copy of an XM module where only `keep` channels play notes. Effect columns stay so tempo and jumps are untouched.
 export function isolate(bytes,keep){
