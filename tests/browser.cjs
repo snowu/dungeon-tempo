@@ -6,7 +6,7 @@ const assert=require('node:assert/strict');
  try{
   const page=await browser.newPage({viewport:{width:1360,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{localStorage.setItem('tempo-learned','yes');const Native=window.AudioContext;window.AudioContext=class extends Native{constructor(){super();window.testAudio=this;window.noteStarts=[];const create=this.createOscillator.bind(this);this.createOscillator=()=>{const o=create(),start=o.start.bind(o);o.start=t=>{window.noteStarts.push(t);start(t)};return o}}}});
-  await page.goto('http://localhost:8087');await page.selectOption('#difficulty','normal');await page.selectOption('#key-layout','dfjk');
+  await page.goto('http://localhost:8087');await page.selectOption('#difficulty','normal');await page.selectOption('#key-layout','dfjk');await page.selectOption('#soundtrack','synth');
   await page.screenshot({path:'/tmp/rogue-ready.png'});
   const overlayOpen=()=>page.evaluate(()=>!document.querySelector('#overlay').classList.contains('hidden'));
   await page.click('#start');

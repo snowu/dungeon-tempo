@@ -1,6 +1,7 @@
 import {modes,chart,judge,nearest} from './rhythm.js';
 import {layouts,practiceChart,explainTap,calibrate} from './controls.js';
 import {Music,tracks,parts} from './music.js';
+import {songs,loadSong,trackerBpm,isTracker} from './tracker.js';
 import {FLOORS,newRun,roomChart,makeRoom,hitEnemy,block,enemyHit,enemyFeeds,fleeRoom,enterDoor,hitWindow,relic,traitAt} from './expedition.js';
 import {geo,createArena} from './arena.js';
 const $=id=>document.getElementById(id), canvas=$('game'), g=canvas.getContext('2d'), colors=['#d7f779','#c7abff','#7cdbd6','#ffb180'];
@@ -15,11 +16,16 @@ const arena=createArena(g,art,colors,reduced);
 const live=()=>['playing','paused','slain','fallen'].includes(state);
 function best(){try{return Number(localStorage.getItem('dungeon-tempo-run-best-'+mode))||0}catch{return 0}}
 function updateBest(){$('best').textContent=best()?best().toLocaleString():'—'}
-async function ensureAudio(){
+async function ensureAudio(withSong=true){
  audio??=new (window.AudioContext||window.webkitAudioContext)();await audio.resume();
  if(!master){master=audio.createGain();master.connect(audio.destination);music=new Music(audio,master)}
  master.gain.value=muted?0:Number($('volume').value)/100*.65;
+ if(withSong&&isTracker($('soundtrack').value))await loadSong($('soundtrack').value).catch(e=>songFailed(e));
 }
+// A tracker song that cannot load or render falls back to the synth soundtrack, and says why on screen.
+function songFailed(e){console.error(e);const name=songs[$('soundtrack').value]?.name||'That song';$('soundtrack').value='synth';$('track-description').textContent=`${name} could not play here (${e.message}). Playing Neon Catacombs instead.`}
+// Tracker songs keep their own tempo, scaled by the room's pace.
+const tempoOf=bpm=>isTracker($('soundtrack').value)?trackerBpm($('soundtrack').value,bpm):bpm;
 function soundtrack(){music.play({style:$('soundtrack').value,startTime,bpm:run.room.bpm,endBeat:run.room.endBeat,intensity:run.floor});music.calls(notes.filter(n=>n.kind==='call'));}
 function stopMusic(){clearTimeout(previewTimer);previewTimer=null;if(music)music.stop();$('preview-track').textContent='▶ Preview track';$('preview-track').setAttribute('aria-pressed','false');}
 function musicControls(playing){$('soundtrack').disabled=playing;$('preview-track').disabled=playing;$('key-layout').disabled=playing;$('practice').disabled=$('calibrate').disabled=$('calibrate-bar').disabled=playing||state==='doors';}
@@ -27,8 +33,8 @@ async function previewTrack(){
  if(live())return;
  if(previewTimer){stopMusic();return}
  $('preview-track').disabled=true;
- try{await ensureAudio();music.play({style:$('soundtrack').value,startTime:audio.currentTime+.08,bpm:modes[$('difficulty').value].bpm,skipCountIn:true});
- $('preview-track').textContent='■ Stop preview';$('preview-track').setAttribute('aria-pressed','true');previewTimer=setTimeout(stopMusic,32*60/modes[$('difficulty').value].bpm*1000+400);
+ try{await ensureAudio();const bpm=tempoOf(modes[$('difficulty').value].bpm);music.play({style:$('soundtrack').value,startTime:audio.currentTime+.08,bpm,endBeat:36,skipCountIn:true});
+ $('preview-track').textContent='■ Stop preview';$('preview-track').setAttribute('aria-pressed','true');previewTimer=setTimeout(stopMusic,32*60/bpm*1000+400);
  }catch(e){$('status').textContent='Audio preview could not start. Try again.';console.error(e)}finally{$('preview-track').disabled=false}
 }
 function syncRun(){
@@ -58,11 +64,14 @@ function choiceButton(icon,title,description,action,kind=''){
  i.textContent=icon;strong.textContent=title;span.textContent=description;button.append(i,strong,span);button.onclick=action;$('choices').append(button);
 }
 function prepareRoom(){
- stopMusic();spb=60/run.room.bpm;notes=practicing?practiceChart():roomChart(run,$('soundtrack').value);silenced=[false,false,false,false];phase='';combo=0;bursts=[];flashes=[0,0,0,0];errorUntil=0;
+ stopMusic();
+ // Tracker stems are rendered before the start time is set, so the song can't start late.
+ const style=$('soundtrack').value;if(isTracker(style))try{if(!songs[style].data)throw new Error('the song did not load');music.prepare({style,bpm:tempoOf(run.room.bpm),endBeat:run.room.endBeat,intensity:run.floor})}catch(e){songFailed(e)}
+ run.room.bpm=tempoOf(run.room.bpm);spb=60/run.room.bpm;notes=practicing?practiceChart():roomChart(run,$('soundtrack').value);silenced=[false,false,false,false];phase='';combo=0;bursts=[];flashes=[0,0,0,0];errorUntil=0;
  startTime=audio.currentTime+.25;state='playing';$('overlay').classList.add('hidden');$('overlay').classList.remove('choosing');$('choices').replaceChildren();
  $('pause').disabled=false;$('difficulty').disabled=true;$('pause').textContent='Ⅱ Pause · Space';arena.reset(run.room,performance.now());
  $('status').textContent=practicing?'Practice: eight notes, no health loss.':`${run.room.name} blocks the way.`;setJudgement(practicing?'Match the letter. Wait until the gem reaches its key.':'Four count-in beats. Your band attacks first.');$('combo').innerHTML='0<span>×</span>';
- musicControls(true);document.querySelector('.playfield').scrollIntoView?.({block:'nearest',behavior:reduced?'auto':'smooth'});$('tempo').textContent=run.room.bpm+' BPM · 4/4';$('progress').style.width='0%';syncRun();soundtrack();
+ musicControls(true);document.querySelector('.playfield').scrollIntoView?.({block:'nearest',behavior:reduced?'auto':'smooth'});$('tempo').textContent=Math.round(run.room.bpm)+' BPM · 4/4';$('progress').style.width='0%';syncRun();soundtrack();
 }
 function setJudgement(text,kind=''){$('judgement').textContent=text;$('judgement').className=kind;}
 function updateLayout(){
@@ -100,7 +109,7 @@ async function pause(){if(state!=='playing')return;state='paused';await audio.su
 function showDoors(label,title,copy){
  state='doors';syncRun();showOverlay(label,title,copy,null);
  run.doors.forEach((door,i)=>{
-  const go=()=>{document.activeElement?.blur();const heal=door.heal;if(!enterDoor(run,i))return;if(run.status==='combat')prepareRoom();else showDoors('CAMPFIRE','You rest by the fire.',`+${heal} health (${run.hp} / ${run.maxHp}). The way down continues.`)};
+  const go=async()=>{document.activeElement?.blur();await ensureAudio();const heal=door.heal;if(!enterDoor(run,i))return;if(run.status==='combat')prepareRoom();else showDoors('CAMPFIRE','You rest by the fire.',`+${heal} health (${run.hp} / ${run.maxHp}). The way down continues.`)};
   if(door.type==='boss')return choiceButton('♛','The Hollow Conductor','The final song: three movements, longer and faster. It does not flee.',go,'boss');
   if(door.type==='rest')return choiceButton('☾','Campfire',`No fight, no relic. Heal ${door.heal} (${run.hp} / ${run.maxHp} now).`,go,'rest');
   const r=relic(door.relic),foe=makeRoom({...run,floor:run.floor+1},door.type==='elite'?'elite':'crypt');
@@ -159,6 +168,11 @@ function reportMiss(note){
  pads[lane].classList.add('missed');setTimeout(()=>pads[lane].classList.remove('missed'),900);
  if(!practicing&&run.status==='dead')settle();
 }
+function stray(lane){
+ const lost=combo>0;combo=0;$('combo').innerHTML='0<span>×</span>';
+ const drop=mode!=='easy'&&!silenced[lane];if(drop){silenced[lane]=true;music.setLane(lane,false)}
+ return (lost?' · combo lost':'')+(drop?` · ${parts[lane].name.toLowerCase()} dropped out`:'');
+}
 function tap(lane){
  if(state==='calibrating'){recordCalibrationTap(lane);return}
  if(state!=='playing')return;
@@ -166,10 +180,11 @@ function tap(lane){
  if(beat<3.5){setJudgement('Count-in: wait for the first gem. No damage.');return}if(beat>run.room.endBeat)return;
  const n=nearest(notes,lane,beat,spb,hitWindow(run,modes[mode].window));
  flashes[lane]=now+120;pads[lane].classList.add('active');setTimeout(()=>pads[lane].classList.remove('active'),120);
- if(!n&&phase==='call'&&!practicing){setJudgement('Just listen during the call. Echo it next bar to block.','');feedback('LISTEN…','#ff8b83',700,true);return}
+ // A tap with no gem near it is a stray note: it breaks the combo, and on Normal and Hard that bandmate's part drops out.
+ if(!n&&phase==='call'&&!practicing){const cost=stray(lane);setJudgement('Just listen during the call. Echo it next bar to block.'+cost,'error');feedback('LISTEN…','#ff8b83',700,true);return}
  if(!n){
  const info=explainTap(notes,lane,beat,spb),message=info.kind==='WRONG KEY'?`WRONG KEY · try ${labels[info.expected]}`:`${info.kind} · ${labels[lane]}`;
- setJudgement(message+' · no damage','error');feedback(message,'#ffcf8a',1000,true);return;
+ const cost=practicing?' · no damage':stray(lane);setJudgement(message+cost,'error');feedback(message,'#ffcf8a',1000,true);return;
  }
  const rating=judge((n.beat-beat)*spb,hitWindow(run,modes[mode].window));n.state='hit';hits++;combo++;maxCombo=Math.max(combo,maxCombo);if(rating==='Perfect')perfect++;
  score+=({Perfect:100,Great:75,Good:50}[rating])*(1+Math.floor(Math.min(combo,40)/10));
@@ -192,7 +207,7 @@ function tap(lane){
 }
 async function beginCalibration(){
  if(!['ready','trained','dead','won'].includes(state))return;
- try{document.activeElement?.blur();stopMusic();await ensureAudio()}catch(e){$('status').textContent='Audio could not start. Try again.';console.error(e);return}
+ try{document.activeElement?.blur();stopMusic();await ensureAudio(false)}catch(e){$('status').textContent='Audio could not start. Try again.';console.error(e);return}
  const bpm=90,first=audio.currentTime+.4,clicks=music.metronome({startTime:first,bpm,count:16});
  calib={prev:state,taps:[],clicks:clicks.slice(4),spb:60/bpm};state='calibrating';musicControls(true);$('difficulty').disabled=true;
  showOverlay('CALIBRATE TIMING','Tap along with the click.','Four clicks to listen, then press any lane key or tap a pad on each of the next twelve. Close your eyes if it helps — trust your ears.',null);
@@ -246,5 +261,5 @@ function draw(now){
 $('key-layout').onchange=updateLayout;updateLayout();$('practice').onclick=beginPractice;$('skip-practice').onclick=()=>{learned=true;start()};
 let savedPace=null;try{savedPace=localStorage.getItem('tempo-pace')}catch{}setPace(modes[savedPace]?savedPace:learned?'normal':'easy');
 if(learned){showOverlay('A NEW DUNGEON AWAITS','Find your rhythm.','Eight rooms and a boss. Your band attacks on the music; when the enemy calls, echo it to block.','Enter the dungeon ↗')}
-$('preview-track').onclick=previewTrack;$('soundtrack').onchange=()=>{stopMusic();$('track-description').textContent=tracks[$('soundtrack').value].description;};
+$('preview-track').onclick=previewTrack;$('soundtrack').onchange=()=>{stopMusic();const v=$('soundtrack').value;$('track-description').textContent=(tracks[v]||songs[v]).description;if(isTracker(v))loadSong(v).catch(e=>{$('status').textContent='That song could not load.';console.error(e)})};
 $('start').onclick=start;$('pause').onclick=()=>state==='paused'?start():pause();pads.forEach((p,i)=>p.addEventListener('pointerdown',e=>{e.preventDefault();tap(i)}));document.addEventListener('keydown',e=>{if(e.target.matches?.('input,select'))return;if(e.repeat)return;const lane=keys.indexOf(e.key.toLowerCase());if(lane>=0){e.preventDefault();tap(lane)}if(e.code==='Space'&&['playing','paused'].includes(state)){e.preventDefault();if(state==='playing')pause();else start()}});document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='playing')pause()});$('difficulty').onchange=()=>{setPace($('difficulty').value);try{localStorage.setItem('tempo-pace',mode)}catch{}};function volume(){if(master)master.gain.value=muted?0:Number($('volume').value)/100*.65;$('sound').textContent=muted?'Sound off ♫':'Sound on ♫';$('sound').setAttribute('aria-label',muted?'Unmute audio':'Mute audio')}$('volume').oninput=volume;$('sound').onclick=()=>{muted=!muted;volume()};$('offset').oninput=()=>setOffset(Number($('offset').value));$('calibrate').onclick=$('calibrate-bar').onclick=beginCalibration;requestAnimationFrame(draw);

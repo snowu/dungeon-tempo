@@ -74,10 +74,12 @@ export function roomChart(run,style='synth') {
  for(const e of compose(style,room.endBeat,run.floor)){
   const lane=laneOf(e.kind),key=e.beat+':'+lane,bar=barOf(e.beat);
   if(lane<0||e.beat<4||e.beat>=limit||plan[bar]!=='attack'||Math.abs(e.beat/grid-Math.round(e.beat/grid))>1e-6||seen.has(key))continue;seen.add(key);
-  candidates.push({beat:e.beat,lane,priority:(spotlight.get(bar)===lane?2:0)+(e.beat%1===0?1:0)+(e.beat%2===0?.4:0)+rng()*.8});
+  candidates.push({beat:e.beat,lane,priority:(spotlight.get(bar)===lane?2:0)+(webbed.get(bar)===lane?1.5:0)+(e.beat%1===0?1:0)+(e.beat%2===0?.4:0)+rng()*.8});
  }
- const chosen=[];
- for(const c of candidates.sort((a,b)=>b.priority-a.priority)){if(chosen.length>=target)break;if(chosen.every(n=>Math.abs(n.beat-c.beat)>=gap-1e-9))chosen.push(c)}
+ // Every bandmate first gets a fair share of the room, then the best remaining notes fill it.
+ const chosen=[],fits=c=>chosen.every(n=>Math.abs(n.beat-c.beat)>=gap-1e-9),quota=Math.floor(target/6);candidates.sort((a,b)=>b.priority-a.priority);
+ for(let lane=0;lane<4;lane++){let taken=0;for(const c of candidates)if(c.lane===lane&&taken<quota&&chosen.length<target&&fits(c)){chosen.push(c);taken++}}
+ for(const c of candidates){if(chosen.length>=target)break;if(!chosen.includes(c)&&fits(c))chosen.push(c)}
  const notes=chosen.map(({beat,lane})=>({beat,lane,kind:'attack',webbed:webbed.get(barOf(beat))===lane,state:'pending'}));
  plan.forEach((p,bar)=>{if(p!=='call'||plan[bar+1]!=='guard')return;
   const at=4+bar*4,trait=traitAt(room,at),frenzy=trait==='frenzy';
