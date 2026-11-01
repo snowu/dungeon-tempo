@@ -86,6 +86,44 @@ export function isolate(bytes,keep){
  out.push(bytes.slice(p));const all=new Uint8Array(out.reduce((n,a)=>n+a.length,0));let at=0;for(const a of out){all.set(a,at);at+=a.length}return all;
 }
 
+// Every song is brought to the same loudness: the lane gain that sets its full mix to a common level.
+export function loudness(stems){let sum=0;const frames=stems[0][0].length;for(let i=0;i<frames;i+=4){let x=0;for(const st of stems)x+=st[0][i];sum+=x*x}return Math.min(4,.055/Math.max(1e-4,Math.sqrt(sum/(frames/4))))}
+
+// ---------- Room stems, off the main thread ----------
+// A room's stems take a few hundred ms to render on a desktop and seconds on a phone, so a module worker renders them,
+// ideally while the player is still choosing a door. Without workers, or if the worker fails, they render here as before.
+// Keys leave out the sample rate: stems carry their own and Web Audio resamples them.
+const stemKey=({style,bpm,endBeat=36,intensity=1})=>[style,bpm,endBeat,intensity].join();
+const stemCache=new Map(),jobs=new Map();let worker=null,workerBroken=typeof Worker==='undefined',jobId=0;
+function renderHere({style,bpm,endBeat=36,intensity=1},sampleRate){const stems=renderStems(style,{beats:endBeat-4,intensity,bpm,sampleRate});return {stems,level:loudness(stems),sampleRate}}
+function startWorker(){
+ try{worker=new Worker(new URL('./stems.worker.js',import.meta.url),{type:'module'})}catch{workerBroken=true;return}
+ worker.onmessage=({data})=>{const job=jobs.get(data.id);jobs.delete(data.id);if(!job)return;if(data.error)job.fallback();else job.done({stems:data.stems,level:data.level,sampleRate:data.sampleRate})};
+ worker.onerror=()=>{workerBroken=true;worker?.terminate();worker=null;const waiting=[...jobs.values()];jobs.clear();waiting.forEach(job=>job.fallback())};
+}
+function renderAway(req,sampleRate){
+ if(!worker&&!workerBroken)startWorker();
+ if(workerBroken)return Promise.resolve().then(()=>renderHere(req,sampleRate));
+ return new Promise((done,fail)=>{const id=++jobId,{style,bpm,endBeat=36,intensity=1}=req;
+  jobs.set(id,{done,fallback:()=>{try{done(renderHere(req,sampleRate))}catch(e){fail(e)}}});
+  worker.postMessage({id,style,beats:endBeat-4,intensity,bpm,sampleRate})});
+}
+// Stems for a room, rendered once: resolves to {stems,level,sampleRate}.
+export function prepareStems(req,sampleRate=48000){
+ if(!songs[req?.style])return Promise.resolve(null);
+ const key=stemKey(req);let entry=stemCache.get(key);
+ if(!entry){entry={};entry.promise=renderAway(req,sampleRate).then(r=>entry.result=r,e=>{if(stemCache.get(key)===entry)stemCache.delete(key);throw e});stemCache.set(key,entry)}
+ return entry.promise;
+}
+// Stems right now: from the cache, or rendered on the spot when nobody prepared them.
+export function stemsFor(req,sampleRate){const key=stemKey(req),hit=stemCache.get(key)?.result;if(hit)return hit;const r=renderHere(req,sampleRate);stemCache.set(key,{promise:Promise.resolve(r),result:r});return r}
+// Starts on the rooms the player can reach next and lets go of every other room; each one is tens of MB.
+export function prefetchStems(reqs,sampleRate){
+ const wanted=reqs.filter(r=>songs[r?.style]),keep=new Set(wanted.map(stemKey));
+ for(const k of stemCache.keys())if(!keep.has(k))stemCache.delete(k);
+ for(const r of wanted)prepareStems(r,sampleRate).catch(()=>{});
+}
+
 // Renders the four lane stems for a room: `beats` of music from the floor's start, at `bpm`.
 export function renderStems(id,{beats,intensity=1,bpm,sampleRate=44100}){
  const s=songs[id],factor=bpm/s.data.bpm,{order}=startOf(s.data,intensity),frames=Math.ceil((beats*s.data.spb/factor+.5)*sampleRate),chunk=4096;

@@ -1,5 +1,5 @@
 // Original eight-bar arrangements. Everything is scheduled on the game's audio clock.
-import {songs,trackerScore,renderStems} from './tracker.js';
+import {songs,trackerScore,stemsFor} from './tracker.js';
 export const tracks={
  synth:{name:'Neon Catacombs',description:'Dark synthwave · pulsing bass, wide chords, backbeat snare'},
  funk:{name:'Graveyard Shift',description:'Dungeon funk · electric keys, syncopated bass, shuffled hats'},
@@ -91,8 +91,8 @@ export class Music {
   const length=Math.floor(context.sampleRate*1.8);this.impulse=context.createBuffer(2,length,context.sampleRate);
   for(let ch=0;ch<2;ch++){const d=this.impulse.getChannelData(ch);for(let i=0;i<length;i++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;d[i]=(seed/2147483648-1)*(1-i/length)**3}}
  }
- play({style='synth',startTime,bpm,endBeat=36,intensity=1,skipCountIn=false}){
-  if(songs[style])return this.playTracker({style,startTime,bpm,endBeat,intensity,skipCountIn});
+ play({style='synth',startTime,bpm,endBeat=36,intensity=1,skipCountIn=false,stems}){
+  if(songs[style])return this.playTracker({style,startTime,bpm,endBeat,intensity,skipCountIn,stems});
   this.stop();const c=this.context,spb=60/bpm,bus=c.createGain(),mix=c.createDynamicsCompressor(),delay=c.createDelay(1),wet=c.createGain(),feedback=c.createGain(),damp=c.createBiquadFilter();
   bus.gain.value=.8;mix.threshold.value=-15;mix.knee.value=12;mix.ratio.value=3;mix.attack.value=.006;mix.release.value=.15;
   const makeup=c.createGain();makeup.gain.value=1.8;bus.connect(mix);mix.connect(makeup);makeup.connect(this.output);delay.delayTime.value=spb*.75;feedback.gain.value=.24;damp.type='lowpass';damp.frequency.value=2400;
@@ -111,26 +111,18 @@ export class Music {
   return session;
  }
  // Tracker songs: the four lane stems are rendered up front and start together after the count-in.
- playTracker({style,startTime,bpm,endBeat,intensity,skipCountIn}){
+ playTracker({style,startTime,bpm,endBeat,intensity,skipCountIn,stems:prepared}){
   this.stop();const c=this.context,spb=60/bpm,bus=c.createGain(),mix=c.createDynamicsCompressor(),makeup=c.createGain(),begin=startTime+(skipCountIn?0:4*spb);
   bus.gain.value=.8;mix.threshold.value=-15;mix.knee.value=12;mix.ratio.value=3;mix.attack.value=.006;mix.release.value=.15;makeup.gain.value=1.8;bus.connect(mix);mix.connect(makeup);makeup.connect(this.output);
-  const stems=this.prepare({style,bpm,endBeat,intensity});
-  // Every song is brought to the same loudness, measured on the full mix.
-  let sum=0;const frames=stems[0][0].length;for(let i=0;i<frames;i+=4){let x=0;for(const st of stems)x+=st[0][i];sum+=x*x}
-  const level=Math.min(4,.055/Math.max(1e-4,Math.sqrt(sum/(frames/4)))),lanes=parts.map(()=>{const g=c.createGain();g.gain.value=level;g.connect(bus);return g});
+  // Stems normally arrive prepared (rendered in a worker); otherwise they render here. Each song is levelled to the same loudness.
+  const {stems,level,sampleRate}=prepared??stemsFor({style,bpm,endBeat,intensity},c.sampleRate),frames=stems[0][0].length,lanes=parts.map(()=>{const g=c.createGain();g.gain.value=level;g.connect(bus);return g});
   const session={style,startTime,spb,bus,lanes,levels:lanes.map(()=>level),tracker:true,nodes:[bus,mix,makeup,...lanes],sources:[],stopped:false};this.session=session;
   if(!skipCountIn)for(let b=0;b<4;b++)this.voice(session,{kind:'click',note:b?79:84,length:.08,velocity:.5},startTime+b*spb);
   // If rendering ran past the start, join the song where it should already be.
   const now=c.currentTime,late=Math.max(0,now-begin);
-  stems.forEach((st,lane)=>{const buffer=c.createBuffer(2,frames,c.sampleRate),src=c.createBufferSource();buffer.copyToChannel(st[0],0);buffer.copyToChannel(st[1],1);src.buffer=buffer;src.connect(lanes[lane]);
+  stems.forEach((st,lane)=>{const buffer=c.createBuffer(2,frames,sampleRate),src=c.createBufferSource();buffer.copyToChannel(st[0],0);buffer.copyToChannel(st[1],1);src.buffer=buffer;src.connect(lanes[lane]);
    session.sources.push(src);src.start(Math.max(begin,now),late);src.onended=()=>{src.disconnect();const i=session.sources.indexOf(src);if(i>=0)session.sources.splice(i,1)}});
   return session;
- }
- // Renders a tracker room's stems ahead of time; play() reuses them when the room matches.
- prepare({style,bpm,endBeat=36,intensity=1}){
-  if(!songs[style])return null;const key=[style,bpm,endBeat,intensity].join();
-  if(this.rendered?.key!==key)this.rendered={key,stems:renderStems(style,{beats:endBeat-4,intensity,bpm,sampleRate:this.context.sampleRate})};
-  return this.rendered.stems;
  }
  stop(){
   const s=this.session;if(!s)return;this.session=null;s.stopped=true;clearInterval(s.timer);
