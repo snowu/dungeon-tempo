@@ -11,6 +11,10 @@ let phase='',silenced=[false,false,false,false],run=null,calib=null,practicing=f
 let learned=false;try{learned=localStorage.getItem('tempo-learned')==='yes'}catch{}
 let keys=layouts.asdf.keys,labels=layouts.asdf.labels;
 const pads=[...document.querySelectorAll('[data-lane]')];
+// Elements the frame loop touches, looked up once; text is only written when it changes, so idle frames cause no layout.
+const feedbackEl=$('feedback'),progressEl=$('progress'),timeEl=$('time'),offsetEl=$('offset'),setText=(el,t)=>{if(el.textContent!==t)el.textContent=t};
+let progressShown=-1,demoNotes=null;
+function setProgress(k){k=Math.round(Math.max(0,Math.min(1,k))*500)/500;if(k!==progressShown){progressShown=k;progressEl.style.transform=`scaleX(${k})`}}
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const arena=createArena(g,art,colors,reduced);
 const live=()=>['playing','paused','slain','fallen'].includes(state);
@@ -73,7 +77,7 @@ function prepareRoom(){
  startTime=audio.currentTime+.25;state='playing';$('overlay').classList.add('hidden');$('overlay').classList.remove('choosing');$('choices').replaceChildren();
  $('pause').disabled=false;$('difficulty').disabled=true;$('pause').textContent='Ⅱ Pause · Space';arena.reset(run.room,performance.now());
  $('status').textContent=practicing?'Practice: eight notes, no health loss.':`${run.room.name} blocks the way.`;setJudgement(practicing?'Match the letter. Wait until the gem reaches its key.':'Four count-in beats. Your band attacks first.');$('combo').innerHTML='0<span>×</span>';
- musicControls(true);document.querySelector('.playfield').scrollIntoView?.({block:'nearest',behavior:reduced?'auto':'smooth'});$('tempo').textContent=Math.round(run.room.bpm)+' BPM · '+(songs[songOf()]?'♪ '+songs[songOf()].name:'4/4');$('progress').style.width='0%';syncRun();soundtrack();
+ musicControls(true);document.querySelector('.playfield').scrollIntoView?.({block:'nearest',behavior:reduced?'auto':'smooth'});$('tempo').textContent=Math.round(run.room.bpm)+' BPM · '+(songs[songOf()]?'♪ '+songs[songOf()].name:'4/4');setProgress(0);syncRun();soundtrack();
 }
 function setJudgement(text,kind=''){$('judgement').textContent=text;$('judgement').className=kind;}
 function updateLayout(){
@@ -179,7 +183,7 @@ function stray(lane){
 function tap(lane){
  if(state==='calibrating'){recordCalibrationTap(lane);return}
  if(state!=='playing')return;
- const beat=(audio.currentTime-startTime-Number($('offset').value)/1000)/spb,now=performance.now();
+ const beat=(audio.currentTime-startTime-Number(offsetEl.value)/1000)/spb,now=performance.now();
  if(beat<3.5){setJudgement('Count-in: wait for the first gem. No damage.');return}if(beat>run.room.endBeat)return;
  const n=nearest(notes,lane,beat,spb,hitWindow(run,modes[mode].window));
  flashes[lane]=now+120;pads[lane].classList.add('active');setTimeout(()=>pads[lane].classList.remove('active'),120);
@@ -248,7 +252,7 @@ function draw(now){
  // The enemy's call: each telegraphed beat lunges, beams at its lane and flashes it red.
  if(live())for(const n of notes){if(n.kind!=='call')continue;const since=beat-n.beat;if(!n.fired&&since>=0&&since<.5){n.fired=true;arena.call(n.lane,now)}if(since<-.02||since>.4)continue;const x=geo.laneX(n.lane),k=1-since/.4;g.globalAlpha=.35*k;g.fillStyle='#ff5a52';g.fillRect(x,geo.top,144,geo.hit+30-geo.top);g.globalAlpha=k;g.fillStyle='#ff8b83';g.font='bold 40px sans-serif';g.textAlign='center';g.fillText('!',x+72,geo.top+60);g.globalAlpha=1}
  if(state==='playing'&&!practicing&&run.room.plan){const p=run.room.plan[Math.floor((beat-4)/4)]||'';if(beat>=4&&p!==phase){phase=p;cuePhase(phase);const bar=Math.floor((beat-4)/4);if(run.room.acts&&p==='attack'&&bar%8===0&&bar>0){const act={armored:'armor up',webs:'webs',frenzy:'frenzy'}[traitAt(run.room,beat)];setJudgement(`The Conductor's next movement: ${act}!`,'error');arena.note(act.toUpperCase(),'#ff8b83',now)}}}
- const renderNotes=state==='ready'||state==='trained'?chart('normal').slice(0,8):notes;
+ const renderNotes=state==='ready'||state==='trained'?(demoNotes??=chart('normal').slice(0,8)):notes;
  for(const n of renderNotes){
   if(n.state==='miss'&&now-n.missedAt<900){g.fillStyle='#ff8b83';g.font='bold 34px sans-serif';g.textAlign='center';g.fillText('×',geo.laneC(n.lane),geo.hit-40);continue}
   if(n.state!=='pending')continue;const distance=n.beat-(live()?beat:1),y=geo.hit-distance*geo.px;if(y<geo.top+10||y>geo.hit+50)continue;const x=geo.laneC(n.lane);
@@ -259,12 +263,12 @@ function draw(now){
  const hops=[0,1,2,3].map(lane=>bursts.filter(p=>p.lane===lane).reduce((h,p)=>Math.max(h,10*(1-(now-p.t)/400)),0));
  arena.band(now,pulse,silenced,hops);
  arena.effects(now);
- if(state==='playing'){const adjusted=(audio.currentTime-startTime-Number($('offset').value)/1000)/spb;for(const n of notes){if(n.state==='pending'&&(adjusted-n.beat)*spb>hitWindow(run,modes[mode].window)){n.state='miss';reportMiss(n);if(state!=='playing')break}}$('progress').style.width=Math.max(0,Math.min(100,beat/run.room.endBeat*100))+'%';const remaining=Math.max(0,Math.ceil((run.room.endBeat-beat)*spb));$('time').textContent=`${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')}`;if(beat>=0&&beat<3.5){$('feedback').textContent=String(4-Math.floor(beat));feedbackUntil=now+50}if(state==='playing'&&beat>=run.room.endBeat)finish()}
- if(now>feedbackUntil||!['playing','slain'].includes(state))$('feedback').textContent='';requestAnimationFrame(draw)}
+ if(state==='playing'){const adjusted=(audio.currentTime-startTime-Number(offsetEl.value)/1000)/spb;for(const n of notes){if(n.state==='pending'&&(adjusted-n.beat)*spb>hitWindow(run,modes[mode].window)){n.state='miss';reportMiss(n);if(state!=='playing')break}}setProgress(beat/run.room.endBeat);const remaining=Math.max(0,Math.ceil((run.room.endBeat-beat)*spb));setText(timeEl,`${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')}`);if(beat>=0&&beat<3.5){setText(feedbackEl,String(4-Math.floor(beat)));feedbackUntil=now+50}if(state==='playing'&&beat>=run.room.endBeat)finish()}
+ if((now>feedbackUntil||!['playing','slain'].includes(state))&&feedbackEl.textContent)feedbackEl.textContent='';requestAnimationFrame(draw)}
 $('key-layout').onchange=updateLayout;updateLayout();$('practice').onclick=beginPractice;$('skip-practice').onclick=()=>{learned=true;start()};
 let savedPace=null;try{savedPace=localStorage.getItem('tempo-pace')}catch{}setPace(modes[savedPace]?savedPace:learned?'normal':'easy');
 if(learned){showOverlay('A NEW DUNGEON AWAITS','Find your rhythm.','Eight rooms and a boss. Your band attacks on the music; when the enemy calls, echo it to block.','Enter the dungeon ↗')}
 // Songs load in the background as soon as the page opens, so the first room doesn't wait for them.
 if(isTracker($('soundtrack').value))setTimeout(()=>Promise.all((($('soundtrack').value==='mixtape')?[...new Set(setlist)]:[$('soundtrack').value]).map(id=>loadSong(id))).catch(()=>{}),300);
 $('preview-track').onclick=previewTrack;$('soundtrack').onchange=()=>{stopMusic();const v=$('soundtrack').value;$('track-description').textContent=describe(v).description;if(isTracker(v))loadSong(v).catch(e=>{$('status').textContent='That song could not load.';console.error(e)})};
-$('start').onclick=start;$('pause').onclick=()=>state==='paused'?start():pause();pads.forEach((p,i)=>p.addEventListener('pointerdown',e=>{e.preventDefault();tap(i)}));document.addEventListener('keydown',e=>{if(e.target.matches?.('input,select'))return;if(e.repeat)return;const lane=keys.indexOf(e.key.toLowerCase());if(lane>=0){e.preventDefault();tap(lane)}if(e.code==='Space'&&['playing','paused'].includes(state)){e.preventDefault();if(state==='playing')pause();else start()}});document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='playing')pause()});$('difficulty').onchange=()=>{setPace($('difficulty').value);try{localStorage.setItem('tempo-pace',mode)}catch{}};function volume(){if(master)master.gain.value=muted?0:Number($('volume').value)/100*.65;$('sound').textContent=muted?'Sound off ♫':'Sound on ♫';$('sound').setAttribute('aria-label',muted?'Unmute audio':'Mute audio')}$('volume').oninput=volume;$('sound').onclick=()=>{muted=!muted;volume()};$('offset').oninput=()=>setOffset(Number($('offset').value));$('calibrate').onclick=$('calibrate-bar').onclick=beginCalibration;requestAnimationFrame(draw);
+$('start').onclick=start;$('pause').onclick=()=>state==='paused'?start():pause();pads.forEach((p,i)=>p.addEventListener('pointerdown',e=>{e.preventDefault();tap(i)}));document.addEventListener('keydown',e=>{if(e.target.matches?.('input,select'))return;if(e.repeat)return;const lane=keys.indexOf(e.key.toLowerCase());if(lane>=0){e.preventDefault();tap(lane)}if(e.code==='Space'&&['playing','paused'].includes(state)){e.preventDefault();if(state==='playing')pause();else start()}});document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='playing')pause()});$('difficulty').onchange=()=>{setPace($('difficulty').value);try{localStorage.setItem('tempo-pace',mode)}catch{}};function volume(){if(master)master.gain.value=muted?0:Number($('volume').value)/100*.65;$('sound').textContent=muted?'Sound off ♫':'Sound on ♫';$('sound').setAttribute('aria-label',muted?'Unmute audio':'Mute audio')}$('volume').oninput=volume;$('sound').onclick=()=>{muted=!muted;volume()};$('offset').oninput=()=>setOffset(Number(offsetEl.value));$('calibrate').onclick=$('calibrate-bar').onclick=beginCalibration;requestAnimationFrame(draw);

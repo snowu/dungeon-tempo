@@ -5,8 +5,11 @@ const BAND=[96,84,112,121];
 
 export function createArena(g,art,colors,reduced){
  const fx=[],particles=[],bandHurt=[0,0,0,0],enemy={sprite:46,hurtAt:-1e9,lungeAt:-1e9,enterAt:-1e9,deathAt:0,boss:false};
- const ease=k=>1-(1-k)**3;
- function sprite(id,x,y,size){if(art.complete&&art.naturalWidth)g.drawImage(art,(id%12)*16,Math.floor(id/12)*16,16,16,Math.round(x),Math.round(y),size,size)}
+ const ease=k=>1-(1-k)**3;let wall=null;
+ const ready=()=>art.complete&&art.naturalWidth;
+ function sprite(id,x,y,size,ctx=g){if(ready())ctx.drawImage(art,(id%12)*16,Math.floor(id/12)*16,16,16,Math.round(x),Math.round(y),size,size)}
+ function paintWall(w){const grad=w.createLinearGradient(0,0,0,geo.top);grad.addColorStop(0,'#141924');grad.addColorStop(1,'#1d1a22');w.fillStyle=grad;w.fillRect(0,0,geo.W,geo.top-6);
+  if(!ready())return false;w.globalAlpha=.32;for(let x=0;x<20;x++){sprite(40,x*32,0,32,w);sprite(40,x*32,32,32,w)}w.globalAlpha=.22;for(let x=0;x<20;x++)sprite(x%5?48:49,x*32,96,32,w);w.globalAlpha=1;return true}
  function burst(x,y,color,count,speed,now){if(reduced)return;for(let i=0;i<count;i++){const a=Math.PI*2*i/count+Math.random()*.4,v=speed*(.5+Math.random());particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-1,color,t0:now,life:420+Math.random()*300})}}
  function popup(text,color,x,y,now,size=22){fx.push({type:'popup',text,color,x,y,t0:now,dur:800,size})}
 
@@ -28,8 +31,10 @@ export function createArena(g,art,colors,reduced){
   die(now){enemy.deathAt=now;burst(geo.enemyX,geo.enemyY,'#ffd27a',28,5,now);burst(geo.enemyX,geo.enemyY,'#ffffff',12,3,now)},
 
   backdrop(now,pulse){
-   const grad=g.createLinearGradient(0,0,0,geo.top);grad.addColorStop(0,'#141924');grad.addColorStop(1,'#1d1a22');g.fillStyle=grad;g.fillRect(0,0,geo.W,geo.top-6);
-   g.globalAlpha=.32;for(let x=0;x<20;x++){sprite(40,x*32,0,32);sprite(40,x*32,32,32)}g.globalAlpha=.22;for(let x=0;x<20;x++)sprite(x%5?48:49,x*32,96,32);g.globalAlpha=1;
+   // The wall never changes, so it is painted once into its own canvas instead of ~60 tile draws a frame.
+   if(!wall?.done){wall??=typeof document==='undefined'?null:Object.assign(document.createElement('canvas'),{width:geo.W,height:geo.top});
+    if(!wall){paintWall(g);g.globalAlpha=1}else{const w=wall.getContext('2d');w.imageSmoothingEnabled=false;wall.done=paintWall(w)}}
+   if(wall)g.drawImage(wall,0,0);
    // Torches on the wall flicker with the beat.
    for(const x of [70,570]){g.globalAlpha=.25+pulse*.25;g.fillStyle='#ff9d3c';g.beginPath();g.arc(x,40,26,0,Math.PI*2);g.fill();g.globalAlpha=1;sprite(29,x-16,24,32)}
    g.fillStyle='#0c0f15';g.fillRect(0,geo.top-6,geo.W,6);

@@ -65,7 +65,7 @@ a{color:var(--lime);text-underline-offset:3px}
 .playfield{position:relative;aspect-ratio:640/680;width:min(100cqw,calc(100cqh * 640 / 680))}
 canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
 .progress{height:3px;background:#ffffff08}
-.progress>div{height:100%;width:0;background:var(--lime);box-shadow:0 0 8px var(--lime)}
+.progress>div{height:100%;transform:scaleX(0);transform-origin:left;background:var(--lime);box-shadow:0 0 8px var(--lime)}
 .stage-bottom{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 14px;color:var(--muted);font-size:12px;background:var(--panel)}
 .stage-bottom button{border:0;background:transparent;font-size:12px;white-space:nowrap}
 kbd{font-family:inherit}
